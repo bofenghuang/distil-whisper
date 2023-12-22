@@ -307,6 +307,10 @@ class DataTrainingArguments:
         default="distil-whisper",
         metadata={"help": "The name of the wandb project."},
     )
+    wandb_run_name: str = field(
+        default="distil-whisper",
+        metadata={"help": "The name of the wandb run."},
+    )
 
 
 @dataclass
@@ -725,7 +729,8 @@ def rotate_checkpoints(save_total_limit=None, output_dir=None, checkpoint_prefix
         shutil.rmtree(checkpoint, ignore_errors=True)
 
 
-_RE_CHECKPOINT = re.compile(r"^" + "checkpoint" + r"\-(\d+)$")
+# _RE_CHECKPOINT = re.compile(r"^" + "checkpoint" + r"\-(\d+)$")
+_RE_CHECKPOINT = re.compile(r"^checkpoint-(\d+)-epoch-(\d+)$")
 
 
 def get_last_checkpoint(folder):
@@ -799,7 +804,10 @@ def main():
         project_dir=training_args.output_dir,
     )
 
-    accelerator.init_trackers(project_name=data_args.wandb_project)
+    accelerator.init_trackers(
+        project_name=data_args.wandb_project,
+        init_kwargs={"wandb": {"mode": "offline", "name": data_args.wandb_run_name}}
+    )
 
     # 3. Set-up basic logging
     # Create one log on every process with the configuration for debugging
@@ -995,7 +1003,6 @@ def main():
         subfolder=model_args.subfolder,
         token=model_args.token,
         low_cpu_mem_usage=True,
-        # torch_dtype=teacher_dtype,  # todo ?
     )
 
     if student_model.config.decoder_start_token_id is None or teacher_model.config.decoder_start_token_id is None:

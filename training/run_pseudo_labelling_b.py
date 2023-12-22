@@ -60,7 +60,7 @@ from transformers.utils.versions import require_version
 import re
 import json
 import soundfile as sf
-from text_normalization.normalize_french import FrenchTextNormalizer
+# from text_normalization.normalize_french import FrenchTextNormalizer
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.

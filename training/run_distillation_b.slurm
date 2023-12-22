@@ -1,14 +1,61 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Copyright 2023  Bofeng Huang
 
-myscriptspath="/home/bhuang/myscripts"
+#SBATCH --job-name=training
+#SBATCH --output=logs/training/%x-%j.out # output file (%j = job ID)
+#SBATCH --error=logs/training/%x-%j.err # error file (%j = job ID)
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1          # crucial - only 1 task per dist per node!
+#SBATCH --cpus-per-task=20         # number of cores per tasks
+#SBATCH --gres=gpu:8 # reserve 8 GPUs per node
+#SBATCH --time 100:00:00              # maximum execution time (HH:MM:SS)
+#SBATCH --qos=qos_gpu-t4             # QoS
+#SBATCH --hint=nomultithread         # we get physical cores not logical
+#SBATCH --partition=gpu_p2
+#SBATCH --account=cjc@v100
+
+set -x -e
+
+module purge
+
+module load git-lfs
+module load unrar
+
+module load anaconda-py3/2023.03
+module load cuda/12.1.0
+conda activate speech
+
+# Python path
+# myscriptspath="/home/bhuang/myscripts"
+myscriptspath="/gpfs7kw/linkhome/rech/geniif01/uof58yw/my-scripts"
 export PYTHONPATH="${PYTHONPATH:-}:$myscriptspath"
 export PYTHONUNBUFFERED="1"
 
-export HF_HOME="/projects/bhuang/.cache/huggingface"
+# HF cache
+# export HF_HOME="/projects/bhuang/.cache/huggingface"
+
+# WANDB related
+export WANDB_MODE=offline
+# export WANDB_DISABLED=true
+# export WANDB_API_KEY=YOUR_WANDB_API_KEY
+# export WANDB_ENTITY=YOUR_WANDB_ENTITY
+export WANDB_PROJECT=hf-whisper-v3
+
+# https://github.com/pytorch/audio/issues/1021#issuecomment-726915239
 export OMP_NUM_THREADS="1"
+
 # export CUDA_VISIBLE_DEVICES="1,2,3,4,5"
 # export CUDA_VISIBLE_DEVICES="0"
+
+# Debugging flags (optional)
+# force crashing on nccl issues like hanging broadcast
+# export NCCL_ASYNC_ERROR_HANDLING=1
+# export NCCL_DEBUG=INFO
+# export NCCL_DEBUG_SUBSYS=COLL
+# export NCCL_SOCKET_NTHREADS=1
+# export NCCL_NSOCKS_PERTHREAD=1
+# export CUDA_LAUNCH_BLOCKING=1
+# export PYTHONFAULTHANDLER=1
 
 # We found that upwards of 13k hours of audio data was required to reach convergence on English ASR (see Section 9.2 of the paper), so the more data you have, the better!
 
@@ -32,12 +79,17 @@ export OMP_NUM_THREADS="1"
 # The original text transcriptions are normalised (lower-cased or no punctuation): the Whisper generated pseudo-labels contain both punctuation and casing, and so can be used as a substitute for the normalised transcriptions
 # The pre-trained Whisper model achieves < 20% WER on the languages: we then know the majority of the pseudo-labels will be accurate enough for us to train on.
 
-teacher_model_name_or_path="bofenghuang/whisper-large-v3-french"
-model_name_or_path="./outputs/models/bofenghuang-whisper_large_v3_french_dec2_init"
-output_dir="${model_name_or_path}_ft_ep12_bs256_lr1e4"
+# use_cache
+# set to false to save vram
 
-train_file="outputs/data/bofenghuang-whisper_large_v3_french/train-data-wer.json"
-validation_file="/projects/bhuang/corpus/speech/nemo_manifests/final/2023-11-21/test_asr_mcv13_manifest_normalized_pnc.json+/projects/bhuang/corpus/speech/nemo_manifests/final/2023-11-21/test_asr_mls_manifest_normalized_pnc_cleaned.json+/projects/bhuang/corpus/speech/nemo_manifests/final/2023-11-21/test_asr_voxpopuli_manifest_normalized_pnc.json+/projects/bhuang/corpus/speech/nemo_manifests/final/2023-11-21/test_asr_fleurs_manifest_normalized_pnc.json+/projects/bhuang/corpus/speech/nemo_manifests/final/2023-11-21/test_asr_african_accented_french_manifest_normalized_pnc_cleaned.json+/projects/bhuang/corpus/speech/nemo_manifests/final/2023-11-21/test_asr_mtedx_manifest_normalized_pnc.json"
+teacher_model_name_or_path="bofenghuang/whisper-large-v3-french"
+# teacher_model_name_or_path="/gpfsdswork/projects/rech/cjc/commun/models/release/whisper-large-v3-french"
+model_name_or_path="/gpfswork/rech/cjc/commun/models/whisper/bofenghuang-whisper_large_v3_french_dec8_init"
+output_dir="${model_name_or_path}_ft_ep12_bs256_lr1e4_no_specaugment"
+wandb_run_name="${output_dir##*/}"
+
+train_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/final/2023-11-28/train-data-wer.json"
+validation_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/final/2023-11-28/test_asr_mcv13_manifest_normalized_pnc.json+/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/final/2023-11-28/test_asr_mls_manifest_normalized_pnc_cleaned.json+/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/final/2023-11-28/test_asr_voxpopuli_manifest_normalized_pnc.json+/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/final/2023-11-28/test_asr_fleurs_manifest_normalized_pnc.json+/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/final/2023-11-28/test_asr_african_accented_french_manifest_normalized_pnc_cleaned.json"
 
     # --weight_decay "0.01" \
     # --learning_rate 0.0001 \
@@ -49,10 +101,11 @@ validation_file="/projects/bhuang/corpus/speech/nemo_manifests/final/2023-11-21/
     # --text_column_name "whisper_transcript" \
 
 # todo: teacher / student precision, text
+    # --overwrite_output_dir \
 
 accelerate launch \
     --multi_gpu \
-    --num_processes=4 \
+    --num_processes=8 \
     run_distillation_b.py \
     --model_name_or_path "$model_name_or_path" \
     --teacher_model_name_or_path "$teacher_model_name_or_path" \
@@ -74,7 +127,7 @@ accelerate launch \
     --num_train_epochs 12 \
     --per_device_train_batch_size 32 \
     --per_device_eval_batch_size 16 \
-    --gradient_accumulation_steps 2 \
+    --gradient_accumulation_steps 1 \
     --kl_weight 1.0 \
     --temperature 2.0 \
     --optim "adamw_bnb_8bit" \
