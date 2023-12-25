@@ -128,7 +128,15 @@ class ModelArguments:
             )
         },
     )
-
+    apply_spec_augment: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to apply *SpecAugment* data augmentation to the input features. This is currently only relevant for"
+                " Wav2Vec2, HuBERT, WavLM and Whisper models."
+            )
+        },
+    )
 
 @dataclass
 class DataTrainingArguments:
@@ -391,6 +399,7 @@ class DataCollatorSpeechSeq2SeqWithPadding:
     language: str
     task: str
     is_train: bool
+    forward_attention_mask: bool
     input_padding: Union[bool, str] = "max_length"
     target_padding: Union[bool, str] = "max_length"
     max_target_length: Optional[int] = None
@@ -417,12 +426,12 @@ class DataCollatorSpeechSeq2SeqWithPadding:
             # compute log-Mel input features from input audio array
             inputs = self.processor.feature_extractor(
                 waveform, sampling_rate=sample_rate,
-                # return_attention_mask=self.forward_attention_mask
+                return_attention_mask=self.forward_attention_mask
             )
             # different key from others tokenizers
             feature[model_input_name] = inputs.get(model_input_name)[0]
-            # if self.forward_attention_mask:
-            #     feature["attention_mask"] = inputs.get("attention_mask")[0]
+            if self.forward_attention_mask:
+                feature["attention_mask"] = inputs.get("attention_mask")[0]
 
             # process targets
             # should better do audio augmentation / text normalization before runnign this script
@@ -457,6 +466,11 @@ class DataCollatorSpeechSeq2SeqWithPadding:
             padding=self.input_padding,
             return_tensors="pt",
         )
+
+        if self.forward_attention_mask:
+            # bh: pass attention_mask for specaugment of whisper models
+            # batch["attention_mask"] = torch.LongTensor([feature["attention_mask"] for feature in features])
+            batch["attention_mask"] = torch.LongTensor(np.array([feature["attention_mask"] for feature in features]))
 
         labels_batch = self.processor.tokenizer.pad(
             label_features,
@@ -968,6 +982,22 @@ def main():
         revision=model_args.model_revision,
         token=model_args.token,
     )
+
+    # SpecAugment for whisper models
+    # bh: SpecAugment parameters
+    if getattr(config, "model_type", None) == "whisper":
+        config.update(
+            {
+                "apply_spec_augment": model_args.apply_spec_augment,
+                # "mask_time_prob": model_args.mask_time_prob,
+                # "mask_time_length": model_args.mask_time_length,
+                # "mask_time_min_masks": model_args.mask_time_min_masks,
+                # "mask_feature_prob": model_args.mask_feature_prob,
+                # "mask_feature_length": model_args.mask_feature_length,
+                # "mask_feature_min_masks": model_args.mask_feature_min_masks,
+            }
+        )
+
     feature_extractor = WhisperFeatureExtractor.from_pretrained(
         (model_args.feature_extractor_name if model_args.feature_extractor_name else model_args.model_name_or_path),
         cache_dir=model_args.cache_dir,
@@ -1369,7 +1399,7 @@ def main():
 
     if not data_args.streaming and training_args.max_steps < 0:
         num_epochs = int(training_args.num_train_epochs)
-        steps_per_epoch = len(vectorized_datasets["train"]) // train_batch_size
+        steps_per_epoch = len(vectorized_datasets["train"]) // (train_batch_size * gradient_accumulation_steps)
         total_train_steps = steps_per_epoch * num_epochs
     elif training_args.max_steps > 0:
         logger.info("max_steps is given, it will override any value given in num_train_epochs")
@@ -1434,6 +1464,7 @@ def main():
         language=language,
         task=task,
         is_train=True,
+        forward_attention_mask=config.apply_spec_augment,
     )
 
     eval_data_collator = DataCollatorSpeechSeq2SeqWithPadding(
@@ -1450,6 +1481,7 @@ def main():
         language=language,
         task=task,
         is_train=False,
+        forward_attention_mask=False,
     )
 
     # 14. Define generation arguments - we need to do this before we wrap the models in DDP
