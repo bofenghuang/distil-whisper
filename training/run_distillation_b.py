@@ -283,7 +283,9 @@ class DataTrainingArguments:
         default=None,
         metadata={
             "help": "Filter training data with Whisper transcriptions that have greater than `wer_threshold` "
-            "WER with the normalised transcriptions."
+            "WER with the normalised transcriptions. This only takes effect if training on pseudo-labels targets."
+            "If `--use_pseudo_labels=False`, then no WER filtering is performed, since we train directly on the text"
+            "transcriptions."
         },
     )
     timestamp_probability: float = field(
@@ -403,11 +405,16 @@ class DataCollatorSpeechSeq2SeqWithPadding:
     input_padding: Union[bool, str] = "max_length"
     target_padding: Union[bool, str] = "max_length"
     max_target_length: Optional[int] = None
+    condition_on_prev_probability: Optional[float] = None
+    timestamp_begin: Optional[int] = None
+    timestamp_position: Optional[int] = None
 
     def __call__(self, features: List[Dict[str, Union[List[int], np.ndarray]]]) -> Dict[str, np.ndarray]:
         # split inputs and labels since they have to be of different lengths and need
         # different padding methods
         model_input_name = self.processor.model_input_names[0]
+
+        all_token_ids_unprompted = []
 
         for feature in features:
             # read waveform
@@ -454,7 +461,27 @@ class DataCollatorSpeechSeq2SeqWithPadding:
             )
 
             # encode target text to label ids
-            feature["labels"] = self.processor.tokenizer(input_str).input_ids
+            # feature["labels"] = self.processor.tokenizer(input_str).input_ids
+            token_ids = self.processor.tokenizer(input_str).input_ids
+
+            # prepend context with probability
+            # only for training set
+            if self.is_train:
+                all_token_ids_unprompted.append(token_ids)
+                # check whether to condition on previous text - we do this with probability condition_on_prev_probability
+                condition_on_prev = bool(np.random.binomial(1, self.condition_on_prev_probability))
+                if condition_on_prev and len(all_token_ids_unprompted) > 1:
+                    # prompt ids are the penultimate token ids in the batch
+                    prompt_ids = all_token_ids_unprompted[-2]
+                    # strip timestamp tokens from prompt
+                    prompt_ids = [token for token in prompt_ids if token < self.timestamp_begin]
+                    if len(prompt_ids) > 0:
+                        # remove the standard task tokens and add the special <|startofprev|> token
+                        prompt_ids = [self.decoder_prev_token_id] + prompt_ids[self.timestamp_position:-1]
+                    if len(prompt_ids + token_ids) < self.max_target_length:
+                        token_ids = prompt_ids + token_ids
+
+            feature["labels"] = token_ids
 
         # dataloader returns a list of features which we convert to a dict
         input_features = {model_input_name: [feature[model_input_name] for feature in features]}
@@ -490,9 +517,9 @@ class DataCollatorSpeechSeq2SeqWithPadding:
 
         # for condition on previous text
         # replace initial prompt tokens with -100 to ignore correctly when computing the loss
-        # bos_index = torch.argmax((labels == self.decoder_start_token_id).long(), dim=1)
-        # prompt_mask = torch.arange(labels.shape[1]) < bos_index[:, None]
-        # labels = torch.where(prompt_mask, -100, labels)
+        bos_index = torch.argmax((labels == self.decoder_start_token_id).long(), dim=1)
+        prompt_mask = torch.arange(labels.shape[1]) < bos_index[:, None]
+        labels = torch.where(prompt_mask, -100, labels)
 
         batch["labels"] = labels
         batch["decoder_input_ids"] = decoder_input_ids
@@ -743,7 +770,6 @@ def rotate_checkpoints(save_total_limit=None, output_dir=None, checkpoint_prefix
         shutil.rmtree(checkpoint, ignore_errors=True)
 
 
-# _RE_CHECKPOINT = re.compile(r"^" + "checkpoint" + r"\-(\d+)$")
 _RE_CHECKPOINT = re.compile(r"^checkpoint-(\d+)-epoch-(\d+)$")
 
 
@@ -1457,7 +1483,7 @@ def main():
         input_padding="longest",
         target_padding="longest",
         # target_padding="max_length",
-        # max_target_length=max_label_length,
+        max_target_length=max_label_length,
         audio_column_name=data_args.audio_column_name,
         text_column_name=data_args.text_column_name,
         timestamp_probability=timestamp_probability,
@@ -1465,6 +1491,9 @@ def main():
         task=task,
         is_train=True,
         forward_attention_mask=config.apply_spec_augment,
+        condition_on_prev_probability=condition_on_prev_probability,
+        timestamp_begin=timestamp_begin,
+        timestamp_position=timestamp_position,
     )
 
     eval_data_collator = DataCollatorSpeechSeq2SeqWithPadding(

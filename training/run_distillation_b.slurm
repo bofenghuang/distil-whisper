@@ -117,7 +117,7 @@ accelerate launch \
     --max_duration_in_seconds 30 \
     --wer_threshold 10 \
     --timestamp_probability 0.2 \
-    --condition_on_prev_probability 0 \
+    --condition_on_prev_probability 0.1 \
     --language "french" \
     --task "transcribe" \
     --preprocessing_num_workers 16 \
@@ -143,7 +143,7 @@ accelerate launch \
     --save_total_limit 3 \
     --predict_with_generate \
     --generation_num_beams 1 \
-    --max_label_length 128 \
+    --max_label_length 256 \
     --return_timestamps False \
     --ddp_timeout 7200 \
     --wandb_project $WANDB_PROJECT \
