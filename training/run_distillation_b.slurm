@@ -2,8 +2,8 @@
 # Copyright 2023  Bofeng Huang
 
 #SBATCH --job-name=training
-#SBATCH --output=logs/training/%x-%j.out # output file (%j = job ID)
-#SBATCH --error=logs/training/%x-%j.err # error file (%j = job ID)
+#SBATCH --output=logs/%x/%j.out # output file (%j = job ID)
+#SBATCH --error=logs/%x/%j.err # error file (%j = job ID)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1          # crucial - only 1 task per dist per node!
 #SBATCH --cpus-per-task=20         # number of cores per tasks
@@ -24,6 +24,8 @@ module load unrar
 module load anaconda-py3/2023.03
 module load cuda/12.1.0
 conda activate speech
+
+wandb offline
 
 # Python path
 # myscriptspath="/home/bhuang/myscripts"
@@ -84,8 +86,8 @@ export OMP_NUM_THREADS="1"
 
 teacher_model_name_or_path="bofenghuang/whisper-large-v3-french"
 # teacher_model_name_or_path="/gpfsdswork/projects/rech/cjc/commun/models/release/whisper-large-v3-french"
-model_name_or_path="/gpfswork/rech/cjc/commun/models/whisper/bofenghuang-whisper_large_v3_french_dec8_init"
-output_dir="${model_name_or_path}_ft_ep12_bs256_lr1e4_no_specaugment"
+model_name_or_path="/gpfswork/rech/cjc/commun/models/whisper/bofenghuang-whisper_large_v3_french_dec16_init"
+output_dir="${model_name_or_path}_ft_ep16_bs256_lr1e4_preprend"
 wandb_run_name="${output_dir##*/}"
 
 train_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/final/2023-11-28/train-data-wer.json"
@@ -109,6 +111,7 @@ accelerate launch \
     run_distillation_b.py \
     --model_name_or_path "$model_name_or_path" \
     --teacher_model_name_or_path "$teacher_model_name_or_path" \
+    --apply_spec_augment \
     --train_file "$train_file" \
     --validation_file "$validation_file" \
     --audio_column_name "audio_filepath" \
@@ -124,7 +127,7 @@ accelerate launch \
     --dataloader_num_workers 8 \
     --output_dir "$output_dir" \
     --overwrite_output_dir \
-    --num_train_epochs 12 \
+    --num_train_epochs 16 \
     --per_device_train_batch_size 32 \
     --per_device_eval_batch_size 16 \
     --gradient_accumulation_steps 1 \
