@@ -21,7 +21,7 @@ export WANDB_PROJECT=hf-whisper-v3
 # https://github.com/pytorch/audio/issues/1021#issuecomment-726915239
 export OMP_NUM_THREADS="1"
 
-# export CUDA_VISIBLE_DEVICES="1,2,3,4,5"
+export CUDA_VISIBLE_DEVICES="0,1,2,3"
 # export CUDA_VISIBLE_DEVICES="0"
 
 # Debugging flags (optional)
@@ -60,7 +60,7 @@ export OMP_NUM_THREADS="1"
 # set to false to save vram
 
 teacher_model_name_or_path="bofenghuang/whisper-large-v3-french"
-model_name_or_path="./outputs/models/bofenghuang-whisper_large_v3_french_dec2_init"
+model_name_or_path="./outputs/models/bofenghuang-whisper_large_v3_french_dec16_init"
 output_dir="${model_name_or_path}_ft_ep16_bs256_lr1e4_preprend"
 wandb_run_name="${output_dir##*/}"
 

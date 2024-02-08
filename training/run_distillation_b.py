@@ -846,7 +846,8 @@ def main():
 
     accelerator.init_trackers(
         project_name=data_args.wandb_project,
-        init_kwargs={"wandb": {"mode": "offline", "name": data_args.wandb_run_name}}
+        # init_kwargs={"wandb": {"mode": "offline", "name": data_args.wandb_run_name}}
+        init_kwargs={"wandb": {"name": data_args.wandb_run_name}}
     )
 
     # 3. Set-up basic logging
@@ -1049,6 +1050,7 @@ def main():
         token=model_args.token,
         low_cpu_mem_usage=True,
         torch_dtype=teacher_dtype,
+        use_cache=False,
     )
 
     student_model = WhisperForConditionalGeneration.from_pretrained(
