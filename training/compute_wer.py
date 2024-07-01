@@ -9,14 +9,16 @@ import fire
 from datasets import load_dataset
 from tqdm import tqdm
 
-from text_normalization.normalize_french import FrenchTextNormalizer
+# from text_normalization.normalize_french import FrenchTextNormalizer
+from normalizers import BasicTextNormalizer, EnglishTextNormalizer, FrenchTextNormalizer
 
+# timestamp_pat = re.compile("\<[^\>]*\>")
 timestamp_pat = re.compile(r"<\|(\d+\.\d+)\|>")
 
 
 def write_dataset_to_json(dataset, output_file_path, mode="w", default=str, ensure_ascii=False):
     ds_iter = iter(dataset)
-    with open(output_file_path, mode) as fo:
+    with open(output_file_path, mode, encoding="utf-8") as fo:
         for _, sample in enumerate(tqdm(ds_iter, desc="Writing to json", total=len(dataset), unit=" samples")):
             fo.write(f"{json.dumps(sample, default=default, ensure_ascii=ensure_ascii)}\n")
 
@@ -27,9 +29,10 @@ def _filter_timestamp_ids(token_ids):
 
 
 def main(
-    dataset_file,
-    final_output_json,
+    input_data_file,
+    output_data_file,
     text_column_name="text",
+    language=None,
     num_workers=64,
 ):
 
@@ -41,18 +44,23 @@ def main(
     #     token=token,
     # )
 
-    normalizer_ = FrenchTextNormalizer()
+    # normalizer_ = FrenchTextNormalizer()
+    normalizer_ = (
+        EnglishTextNormalizer() if language == "en" else FrenchTextNormalizer() if language == "fr" else BasicTextNormalizer()
+    )
 
     def normalizer(s):
-        # s = re.sub(r"<\|[0-9\.]+\|>", "", s)  # remove timstamps
-        # s = re.sub(r"\<[^\>]*\>", "", s)  # remove timstamps
+        # remove timstamps
         s = _filter_timestamp_ids(s)
-        s = normalizer_(s, do_lowercase=True, do_ignore_words=False, symbols_to_keep="'", do_num2text=True)  # w/o "-"
+
+        # normalize text
+        # w/o "-"
+        s = normalizer_(s, do_lowercase=True, do_ignore_words=False, symbols_to_keep="'", do_num2text=True)
 
         return s
 
-    ext = dataset_file.rsplit(".", 1)[-1]
-    dataset = load_dataset(ext, data_files=dataset_file, split="train")
+    ext = input_data_file.rsplit(".", 1)[-1]
+    dataset = load_dataset(ext, data_files=input_data_file, split="train")
     print(dataset)
 
     metric = evaluate.load("wer")
@@ -80,7 +88,7 @@ def main(
     dataset = dataset.filter(lambda x: x["wer"] != -1, num_proc=num_workers)
     print(dataset)
 
-    write_dataset_to_json(dataset, output_file_path=final_output_json, mode="w")
+    write_dataset_to_json(dataset, output_file_path=output_data_file, mode="w")
 
     wer_ortho = 100 * metric.compute(predictions=dataset["whisper_transcript"], references=dataset[text_column_name])
     wer = 100 * metric.compute(predictions=dataset["whisper_transcript_norm"], references=dataset[f"{text_column_name}_norm"])

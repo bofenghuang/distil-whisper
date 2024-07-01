@@ -28,9 +28,10 @@ input_data_file="/projects/bhuang/corpus/speech/nemo_manifests/mozilla-foundatio
 # tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/-/\_/g" -e "s/[ |=/]/-/g")"
 # outdir="./outputs/data/$tmp_model_id"
 
-tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/[ |=/-]/_/g")"
+# tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/[ |=/-]/_/g")"
+tmp_model_id="$(echo "${model_name_or_path##*/}" | sed -e "s/[ |=/-]/_/g")"
 output_file="${input_data_file%.*}_${tmp_model_id}.json"
-
+final_output_file="${output_file%.*}_wer.json"
 
 $CMD run_pseudo_labelling_b.py \
     --model_name_or_path "$model_name_or_path" \
@@ -54,10 +55,7 @@ $CMD run_pseudo_labelling_b.py \
     --max_label_length 448 \
     --generation_num_beams 1
 
-
-
-# python compute_wer.py \
-#     --dataset_file "${outdir}/train-data.json" \
-#     --final_output_json "${outdir}/train-data-wer.json" \
-#     --text_column_name "text" \
-#     --num_workers 64
+python compute_wer.py \
+    --input_data_file "$output_file" \
+    --output_data_file "$final_output_file" \
+    --num_workers 64

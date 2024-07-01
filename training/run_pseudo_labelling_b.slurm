@@ -40,21 +40,23 @@ num_gpus=4
 
 CMD="accelerate launch --multi_gpu --num_processes=$num_gpus"
 
-model_name_or_path="openai/whisper-large-v3"
+# model_name_or_path="openai/whisper-large-v3"
 # model_name_or_path="bofenghuang/whisper-large-v3-french"
+model_name_or_path="/gpfsdswork/projects/rech/cjc/commun/models/whisper/whisper-large-v3"
 
-input_data_file="/projects/bhuang/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/fr/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
+input_data_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/it/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
 
 # tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/-/\_/g" -e "s/[ |=/]/-/g")"
 # outdir="./outputs/data/$tmp_model_id"
 
-tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/[ |=/-]/_/g")"
+# tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/[ |=/-]/_/g")"
+tmp_model_id="$(echo "${model_name_or_path##*/}" | sed -e "s/[ |=/-]/_/g")"
 output_file="${input_data_file%.*}_${tmp_model_id}.json"
+final_output_file="${output_file%.*}_wer.json"
 
 $CMD run_pseudo_labelling_b.py \
     --model_name_or_path "$model_name_or_path" \
     --input_data_file "$input_data_file" \
-    --max_samples_per_split 1024 \
     --output_dir "$outdir" \
     --output_data_file "$output_file" \
     --audio_column_name "audio_filepath" \
@@ -67,16 +69,15 @@ $CMD run_pseudo_labelling_b.py \
     --dtype "float16" \
     --attn_implementation "flash_attention_2" \
     --per_device_eval_batch_size 128 \
-    --language "fr" \
+    --language "it" \
     --task "transcribe" \
     --return_timestamps \
     --max_label_length 448 \
     --generation_num_beams 1
 
-# python compute_wer.py \
-#     --dataset_file "${outdir}/train-data.json" \
-#     --final_output_json "${outdir}/train-data-wer.json" \
-#     --text_column_name "text" \
-#     --num_workers 64
+python compute_wer.py \
+    --input_data_file "$output_file" \
+    --output_data_file "$final_output_file" \
+    --num_workers 64
 
 echo "END TIME: $(date)"
