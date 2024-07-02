@@ -55,7 +55,7 @@ $CMD run_pseudo_labelling_b.py \
     --max_label_length 448 \
     --generation_num_beams 1
 
-python compute_wer.py \
+python ./scripts/compute_wer.py \
     --input_data_file "$output_file" \
     --output_data_file "$final_output_file" \
     --num_workers 64

@@ -7,13 +7,18 @@
 import hashlib
 import json
 import os
+import re
 import wave
 from typing import Optional
 
 import fire
+import numpy as np
 from datasets import load_dataset
 from datasets.arrow_dataset import table_iter
 from tqdm import tqdm
+
+
+timestamp_pat = re.compile(r"<\|(\d+\.\d+)\|>")
 
 
 def md5(to_hash: str, encoding: str = "utf-8") -> str:
@@ -32,13 +37,14 @@ def concat_wav_files(input_files, output_file):
                 wav_out.writeframes(wav_in.readframes(wav_in.getnframes()))
 
 
-def _print_ds_info(ds, duration_column_name):
+def _print_ds_info(ds, duration_column_name="duration"):
     print()
     print(f"#rows: {ds.num_rows}")
     print(f"Columns: {ds.column_names}")
-    ds_df = ds.to_pandas()
+    # ds_df = ds.to_pandas()
+    durations = np.asarray(ds[duration_column_name])
     print(
-        f"Duration statistics: mean {ds_df[duration_column_name].mean():.2f}s, median {ds_df[duration_column_name].median():.2f}s, min {ds_df[duration_column_name].min():.2f}s, max {ds_df[duration_column_name].max():.2f}s"
+        f"Duration statistics: tot {durations.sum() / 3600:.2f}h, mean {durations.mean():.2f}s, median {np.median(durations):.2f}s, min {durations.min():.2f}s, max {durations.max():.2f}s"
     )
     print()
 
@@ -61,11 +67,14 @@ def main(
     preprocessing_num_workers: int = 8,
     max_samples: Optional[int] = None,
 ):
+    is_mcv = "common_voice" in input_file_path
     is_mls = "multilingual_librispeech" in input_file_path
     is_voxpopuli = "voxpopuli" in input_file_path
     is_yodas = "yodas" in input_file_path
 
-    id_column_name = "id" if is_mls else "audio_id" if is_voxpopuli else "utt_id" if is_yodas else None
+    id_column_name = (
+        "audio_filepath" if is_mcv else "id" if is_mls else "audio_id" if is_voxpopuli else "utt_id" if is_yodas else None
+    )
     speaker_column_name = "speaker_id"
     duration_column_name = "duration"
     audio_column_name = "audio_filepath"
@@ -81,18 +90,23 @@ def main(
         # lambda x: min_duration <= x[duration_column_name] and x[duration_column_name] <= max_duration,
         lambda x: x[duration_column_name] <= max_duration,
         num_proc=preprocessing_num_workers,
-        desc="filtering by duration..."
+        desc="filtering by duration...",
     )
     _print_ds_info(dataset, duration_column_name)
 
     # preprocess
+    if is_mcv:
+        dataset = dataset.map(
+            lambda x: {speaker_column_name: x["client_id"]},
+            num_proc=preprocessing_num_workers,
+            desc="preprocessing...",
+        )
     if is_mls:
         dataset = dataset.map(
             lambda x: {speaker_column_name: str(x[speaker_column_name]) + "-" + str(x["chapter_id"])},
             num_proc=preprocessing_num_workers,
             desc="preprocessing...",
         )
-    # fake speaker it
     if is_yodas:
         dataset = dataset.map(
             lambda x: {speaker_column_name: x["utt_id"].lstrip("-").split("-", 1)[0]},
@@ -109,6 +123,12 @@ def main(
 
     def concatenate_examples(examples):
         # print(examples)
+
+        def _increment_timestamps(s, current_timestamp):
+            def _inc(m, current_timestamp):
+                return f"<|{float(m) + current_timestamp:.2f}|>"
+
+            return timestamp_pat.sub(lambda m: _inc(m.group(1), current_timestamp), s)
 
         def _concat_and_save_wav_files(input_files, speaker_name):
             output_dir = input_files[0]
@@ -144,13 +164,17 @@ def main(
 
             if is_same_speaker and is_concatenable:
                 # inplace concatenation
+                # merged_examples[text_column_name][-1] += " " + example[text_column_name]
+                # update timestamps in transcriptions
+                merged_examples[text_column_name][-1] += " " + _increment_timestamps(
+                    example[text_column_name], merged_examples[duration_column_name][-1]
+                )
                 merged_examples[duration_column_name][-1] += example[duration_column_name]
-                merged_examples[text_column_name][-1] += " " + example[text_column_name]
                 merged_examples[audio_column_name][-1].append(example[audio_column_name])
             else:
+                merged_examples[text_column_name].append(example[text_column_name])
                 merged_examples[speaker_column_name].append(example[speaker_column_name])
                 merged_examples[duration_column_name].append(example[duration_column_name])
-                merged_examples[text_column_name].append(example[text_column_name])
                 merged_examples[audio_column_name].append([example[audio_column_name]])
                 merged_examples["condition_on_prev"].append(True if is_same_speaker else False)
 
@@ -179,6 +203,7 @@ def main(
         batch_size=preprocessing_batch_size,
         num_proc=preprocessing_num_workers,
         remove_columns=dataset.column_names,
+        load_from_cache_file=False,
         desc="concatenating...",
     )
     _print_ds_info(processed_dataset, duration_column_name)

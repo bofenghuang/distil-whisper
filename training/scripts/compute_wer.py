@@ -1,6 +1,19 @@
 #!/usr/bin/env python
 # coding=utf-8
 
+"""Normalize reference/hypothesis then compute WER."""
+
+# import sys
+# import os
+
+# # Get the parent directory of the scripts directory
+# parent_dir = os.path.dirname(os.path.abspath(os.path.dirname(__file__)))
+
+# # Add the parent directory to the system path
+# sys.path.append(parent_dir)
+
+from ... import nib
+
 import json
 import re
 

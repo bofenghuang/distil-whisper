@@ -6,15 +6,17 @@
 #SBATCH --error=logs/%x/%j.err       # error file (%j = job ID)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1          # crucial - only 1 task per dist per node!
-#SBATCH --cpus-per-task=32           # number of cores per tasks
-#SBATCH --gres=gpu:4                 # reserve 8 GPUs per node
+#SBATCH --cpus-per-task=3            # number of cores per tasks
+#SBATCH --gres=gpu:1                 # reserve 8 GPUs per node
 #SBATCH --time=20:00:00              # maximum execution time (HH:MM:SS)
 #SBATCH --qos=qos_gpu-t3             # QoS
 #SBATCH --hint=nomultithread         # we get physical cores not logical
-#SBATCH --constraint=a100
-#SBATCH --account=cjc@a100           # A100 accounting
+#SBATCH --partition=gpu_p2
+#SBATCH --account=cjc@v100           # A100 accounting
+#SBATCH --array=1-8
 
-# Run pseudo labelling on A100s
+# Run pseudo labelling on V100s w/ job array
+# http://www.idris.fr/eng/jean-zay/cpu/jean-zay-cpu-exec_jobarray-eng.html
 
 set -x -e
 
@@ -29,6 +31,8 @@ module load cuda/12.1.0
 # conda activate speech
 conda activate asr
 
+# export CUDA_VISIBLE_DEVICES=$((SLURM_ARRAY_TASK_ID - 1))
+
 # https://github.com/pytorch/audio/issues/1021#issuecomment-726915239
 # export OMP_NUM_THREADS="1"
 
@@ -42,19 +46,28 @@ export HF_DATASETS_OFFLINE="1"
 export HF_EVALUATE_OFFLINE="1"
 
 # Set your number of GPUs here
-num_gpus=4
+# num_gpus=4
 
 #   --dtype "bfloat16" \
 # --max_label_length 128 \
     # --max_samples_per_split 1024 \
 
-CMD="accelerate launch --multi_gpu --num_processes=$num_gpus"
+# CMD="accelerate launch --multi_gpu --num_processes=$num_gpus"
+CMD="accelerate launch"
 
 # model_name_or_path="openai/whisper-large-v3"
 # model_name_or_path="bofenghuang/whisper-large-v3-french"
 model_name_or_path="/gpfsdswork/projects/rech/cjc/commun/models/whisper/whisper-large-v3"
 
-input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/it/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/it/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/facebook/multilingual_librispeech/italian/train_concatenated/train_facebook_multilingual_librispeech_manifest.json"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/facebook/voxpopuli/it/train_concatenated/train_facebook_voxpopuli_manifest.json"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it000/train_concatenated/train_espnet_yodas_manifest.json"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it100/train_concatenated/train_espnet_yodas_manifest.json"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it101/train_concatenated/train_espnet_yodas_manifest.json"
+
+input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it000/train_concatenated/train_espnet_yodas_manifest_0${SLURM_ARRAY_TASK_ID}.json"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it100/train_concatenated/train_espnet_yodas_manifest_0${SLURM_ARRAY_TASK_ID}.json"
 
 # tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/-/\_/g" -e "s/[ |=/]/-/g")"
 # outdir="./outputs/data/$tmp_model_id"
@@ -73,21 +86,21 @@ $CMD run_pseudo_labelling_b.py \
     --id_column_name "id" \
     --duration_column_name "duration" \
     --sort_by_duration True \
-    --preprocessing_num_workers 64 \
+    --preprocessing_num_workers 6 \
     --pad_to_multiple_of 64 \
-    --dataloader_num_workers 8 \
+    --dataloader_num_workers 6 \
     --dtype "float16" \
-    --attn_implementation "flash_attention_2" \
-    --per_device_eval_batch_size 128 \
+    --attn_implementation "sdpa" \
+    --per_device_eval_batch_size 64 \
     --language "it" \
     --task "transcribe" \
     --return_timestamps \
     --max_label_length 448 \
     --generation_num_beams 1
 
-python ./scripts/compute_wer.py \
-    --input_data_file "$output_file" \
-    --output_data_file "$final_output_file" \
-    --num_workers 64
+# python ./scripts/compute_wer.py \
+#     --input_data_file "$output_file" \
+#     --output_data_file "$final_output_file" \
+#     --num_workers 40
 
 echo "END TIME: $(date)"
