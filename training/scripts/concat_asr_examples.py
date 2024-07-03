@@ -49,9 +49,9 @@ def _print_ds_info(ds, duration_column_name="duration"):
     print()
 
 
-def write_dataset_to_json(dataset, output_file_path, mode="w", default=str, ensure_ascii=False):
+def write_dataset_to_json(dataset, output_file_path, mode="w", encoding="utf-8", default=str, ensure_ascii=False):
     ds_iter = iter(dataset)
-    with open(output_file_path, mode) as fo:
+    with open(output_file_path, mode, encoding=encoding) as fo:
         for _, sample in enumerate(tqdm(ds_iter, desc="Writing to json", total=len(dataset), unit=" samples")):
             fo.write(f"{json.dumps(sample, default=default, ensure_ascii=ensure_ascii)}\n")
 
@@ -63,6 +63,7 @@ def main(
     output_file_path: str,
     min_duration: float = 0.1,
     max_duration: float = 30.0,
+    text_column_name: str = "text",
     preprocessing_batch_size: int = 1000,  # Using a larger batch size results in a greater portion of audio samples being packed to 30-seconds, at the expense of higher memory consumption
     preprocessing_num_workers: int = 8,
     max_samples: Optional[int] = None,
@@ -76,9 +77,8 @@ def main(
         "audio_filepath" if is_mcv else "id" if is_mls else "audio_id" if is_voxpopuli else "utt_id" if is_yodas else None
     )
     speaker_column_name = "speaker_id"
-    duration_column_name = "duration"
     audio_column_name = "audio_filepath"
-    text_column_name = "text"
+    duration_column_name = "duration"
 
     # load dataset
     dataset = load_dataset("json", data_files=input_file_path, split="train")
@@ -124,11 +124,14 @@ def main(
     def concatenate_examples(examples):
         # print(examples)
 
-        def _increment_timestamps(s, current_timestamp):
+        def _maybe_increment_timestamps(s, current_timestamp):
             def _inc(m, current_timestamp):
                 return f"<|{float(m) + current_timestamp:.2f}|>"
 
-            return timestamp_pat.sub(lambda m: _inc(m.group(1), current_timestamp), s)
+            # increment timestamps if exist
+            res = timestamp_pat.sub(lambda m: _inc(m.group(1), current_timestamp), s)
+            # add space if not starting with timestamps
+            return res if res.startswith("<|") else " " + res
 
         def _concat_and_save_wav_files(input_files, speaker_name):
             output_dir = input_files[0]
@@ -166,7 +169,7 @@ def main(
                 # inplace concatenation
                 # merged_examples[text_column_name][-1] += " " + example[text_column_name]
                 # update timestamps in transcriptions
-                merged_examples[text_column_name][-1] += " " + _increment_timestamps(
+                merged_examples[text_column_name][-1] += _maybe_increment_timestamps(
                     example[text_column_name], merged_examples[duration_column_name][-1]
                 )
                 merged_examples[duration_column_name][-1] += example[duration_column_name]
@@ -197,7 +200,7 @@ def main(
 
         return merged_examples
 
-    processed_dataset = dataset.map(
+    dataset = dataset.map(
         concatenate_examples,
         batched=True,
         batch_size=preprocessing_batch_size,
@@ -206,10 +209,17 @@ def main(
         load_from_cache_file=False,
         desc="concatenating...",
     )
-    _print_ds_info(processed_dataset, duration_column_name)
+    _print_ds_info(dataset, duration_column_name)
+
+    # add id column to keep segment order
+    dataset = dataset.map(
+        lambda _, idx: {"id": f"{idx:09d}"},
+        with_indices=True,
+        num_proc=preprocessing_num_workers,
+    )
 
     # export
-    write_dataset_to_json(processed_dataset, output_file_path=output_file_path, mode="w")
+    write_dataset_to_json(dataset, output_file_path=output_file_path, mode="w")
 
 
 if __name__ == "__main__":

@@ -3,16 +3,14 @@
 
 """Normalize reference/hypothesis then compute WER."""
 
-# import sys
-# import os
+import sys
+import os
 
-# # Get the parent directory of the scripts directory
-# parent_dir = os.path.dirname(os.path.abspath(os.path.dirname(__file__)))
+# Get the parent directory of the scripts directory
+parent_dir = os.path.dirname(os.path.abspath(os.path.dirname(__file__)))
 
-# # Add the parent directory to the system path
-# sys.path.append(parent_dir)
-
-from ... import nib
+# Add the parent directory to the system path
+sys.path.append(parent_dir)
 
 import json
 import re

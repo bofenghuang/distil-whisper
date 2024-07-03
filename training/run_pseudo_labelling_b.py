@@ -331,19 +331,11 @@ class DataTrainingArguments:
             )
 
 
-def write_dataset_to_json(
-    dataset, output_file_path, mode="w", default=str, ensure_ascii=False
-):
+def write_dataset_to_json(dataset, output_file_path, mode="w", encoding="utf-8", default=str, ensure_ascii=False):
     ds_iter = iter(dataset)
-    with open(output_file_path, mode, encoding="utf-8") as fo:
-        for _, sample in enumerate(
-            tqdm(
-                ds_iter, desc="Writing to json", total=len(dataset), unit=" samples"
-            )
-        ):
-            fo.write(
-                f"{json.dumps(sample, default=default, ensure_ascii=ensure_ascii)}\n"
-            )
+    with open(output_file_path, mode, encoding=encoding) as fo:
+        for _, sample in enumerate(tqdm(ds_iter, desc="Writing to json", total=len(dataset), unit=" samples")):
+            fo.write(f"{json.dumps(sample, default=default, ensure_ascii=ensure_ascii)}\n")
 
 
 def shift_tokens_right(label_ids: np.array, decoder_start_token_id: int) -> np.ndarray:
