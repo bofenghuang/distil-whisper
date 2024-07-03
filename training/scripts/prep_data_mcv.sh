@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copyright 2023  Bofeng Huang
 
-# Run pseudo labelling on A100s
+# prep data for mcv
 
 set -x -e
 
@@ -25,7 +25,7 @@ export TOKENIZERS_PARALLELISM="false"
 # Set your number of GPUs here
 num_gpus=4
 # CPUs
-num_workers=64
+num_workers=256
 
 #   --dtype "bfloat16" \
 # --max_label_length 128 \
@@ -46,28 +46,26 @@ tmp_model_id="$(echo "${model_name_or_path##*/}" | sed -e "s/[ |=/-]/_/g")"
 output_file="${input_file%.*}_${tmp_model_id}.json"
 
 # pred
-$CMD run_pseudo_labelling_b.py \
-    --model_name_or_path "$model_name_or_path" \
-    --input_data_file "$input_file" \
-    --output_dir "$outdir" \
-    --output_data_file "$output_file" \
-    --audio_column_name "audio_filepath" \
-    --id_column_name "id" \
-    --duration_column_name "duration" \
-    --sort_by_duration True \
-    --preprocessing_num_workers $num_workers \
-    --pad_to_multiple_of 64 \
-    --dataloader_num_workers 8 \
-    --dtype "float16" \
-    --attn_implementation "flash_attention_2" \
-    --per_device_eval_batch_size 128 \
-    --language "fr" \
-    --task "transcribe" \
-    --return_timestamps \
-    --max_label_length 448 \
-    --generation_num_beams 1
-
-exit 0;
+# $CMD run_pseudo_labelling_b.py \
+#     --model_name_or_path "$model_name_or_path" \
+#     --input_data_file "$input_file" \
+#     --output_dir "$outdir" \
+#     --output_data_file "$output_file" \
+#     --audio_column_name "audio_filepath" \
+#     --id_column_name "id" \
+#     --duration_column_name "duration" \
+#     --sort_by_duration True \
+#     --preprocessing_num_workers $num_workers \
+#     --pad_to_multiple_of 64 \
+#     --dataloader_num_workers 8 \
+#     --dtype "float16" \
+#     --attn_implementation "flash_attention_2" \
+#     --per_device_eval_batch_size 128 \
+#     --language "fr" \
+#     --task "transcribe" \
+#     --return_timestamps \
+#     --max_label_length 448 \
+#     --generation_num_beams 1
 
 # normalize (timestamps)
 python scripts/norm_whisper_transcript.py \
@@ -75,22 +73,31 @@ python scripts/norm_whisper_transcript.py \
     --output_file_path "${output_file%.*}_norm.json" \
     --num_workers $num_workers
 
-# update prev_whisper_transcript
-python scripts/update_prev_whisper_transcript.py \
+# wer
+python scripts/compute_wer.py \
     --input_file_path "${output_file%.*}_norm.json" \
-    --output_file_path "${output_file%.*}_norm_upprev.json" \
+    --output_file_path "${output_file%.*}_norm_wer.json" \
     --num_workers $num_workers
+
+# filter (upper-case, wer)
+python scripts/filter_whisper_transcript.py \
+    --input_file_path "${output_file%.*}_norm_wer.json" \
+    --output_file_path "${output_file%.*}_norm_wer_filt.json" \
+    --wer_threshold 10 \
+    --num_workers $num_workers
+
+input_file="${output_file%.*}_norm_wer_filt.json"
+output_file="${input_file/\/train\//\/train_concatenated\/}"
+
+# concat
+python scripts/concat_asr_examples.py \
+    --input_file_path $input_file \
+    --output_file_path $output_file \
+    --preprocessing_batch_size 1000 \
+    --preprocessing_num_workers $num_workers
 
 # wer
 python scripts/compute_wer.py \
-    --input_file_path "${output_file%.*}_norm_upprev.json" \
-    --output_file_path "${output_file%.*}_norm_upprev_wer.json" \
+    --input_file_path "$output_file" \
+    --output_file_path "${output_file%.*}_wer.json" \
     --num_workers $num_workers
-
-# filter (upper-case)
-python scripts/filter_whisper_transcript.py \
-    --input_file_path "${output_file%.*}_norm_upprev_wer.json" \
-    --output_file_path "${output_file%.*}_norm_upprev_wer_filt.json" \
-    --num_workers $num_workers
-
-echo "END TIME: $(date)"

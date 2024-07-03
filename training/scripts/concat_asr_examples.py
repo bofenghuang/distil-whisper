@@ -64,6 +64,7 @@ def main(
     min_duration: float = 0.1,
     max_duration: float = 30.0,
     text_column_name: str = "text",
+    whisper_transcript_column_name: str = "whisper_transcript",
     preprocessing_batch_size: int = 1000,  # Using a larger batch size results in a greater portion of audio samples being packed to 30-seconds, at the expense of higher memory consumption
     preprocessing_num_workers: int = 8,
     max_samples: Optional[int] = None,
@@ -79,10 +80,15 @@ def main(
     speaker_column_name = "speaker_id"
     audio_column_name = "audio_filepath"
     duration_column_name = "duration"
+    language_column_name = "_language"
 
     # load dataset
     dataset = load_dataset("json", data_files=input_file_path, split="train")
     _print_ds_info(dataset, duration_column_name)
+
+    has_text = text_column_name in dataset.column_names
+    has_whisper_transcript = whisper_transcript_column_name in dataset.column_names
+    has_language = language_column_name in dataset.column_names
 
     # filter out >30s
     dataset = dataset.filter(
@@ -128,6 +134,8 @@ def main(
             def _inc(m, current_timestamp):
                 return f"<|{float(m) + current_timestamp:.2f}|>"
 
+            # round timestamp to nearest 0.02
+            current_timestamp = int(current_timestamp / 0.02) * 0.02
             # increment timestamps if exist
             res = timestamp_pat.sub(lambda m: _inc(m.group(1), current_timestamp), s)
             # add space if not starting with timestamps
@@ -147,12 +155,18 @@ def main(
         merged_examples = {
             speaker_column_name: [examples[speaker_column_name][0]],
             duration_column_name: [examples[duration_column_name][0]],
-            text_column_name: [examples[text_column_name][0]],
+            # text_column_name: [examples[text_column_name][0]],
             audio_column_name: [[examples[audio_column_name][0]]],
             "condition_on_prev": [False],
-            # "prev_text": [""],
+            # f"prev_{text_column_name}": [""],
             "is_concatenated": [],
         }
+        if has_text:
+            merged_examples[text_column_name] = [examples[text_column_name][0]]
+        if has_whisper_transcript:
+            merged_examples[whisper_transcript_column_name] = [examples[whisper_transcript_column_name][0]]
+        if has_language:
+            merged_examples[language_column_name] = [examples[language_column_name][0]]
 
         # for example_id, example in enumerate(examples):
         for example_id, example in enumerate(table_iter(examples.pa_table, batch_size=1)):
@@ -168,14 +182,25 @@ def main(
             if is_same_speaker and is_concatenable:
                 # inplace concatenation
                 # merged_examples[text_column_name][-1] += " " + example[text_column_name]
-                # update timestamps in transcriptions
-                merged_examples[text_column_name][-1] += _maybe_increment_timestamps(
-                    example[text_column_name], merged_examples[duration_column_name][-1]
-                )
+                # merged_examples[text_column_name][-1] += _maybe_increment_timestamps(
+                #     example[text_column_name], merged_examples[duration_column_name][-1]
+                # )
+                if has_text:
+                    merged_examples[text_column_name][-1] += " " + example[text_column_name]
+                if has_whisper_transcript:
+                    # update timestamps in transcriptions
+                    merged_examples[whisper_transcript_column_name][-1] += _maybe_increment_timestamps(
+                        example[whisper_transcript_column_name], merged_examples[duration_column_name][-1]
+                    )
                 merged_examples[duration_column_name][-1] += example[duration_column_name]
                 merged_examples[audio_column_name][-1].append(example[audio_column_name])
             else:
-                merged_examples[text_column_name].append(example[text_column_name])
+                if has_text:
+                    merged_examples[text_column_name].append(example[text_column_name])
+                if has_whisper_transcript:
+                    merged_examples[whisper_transcript_column_name].append(example[whisper_transcript_column_name])
+                if has_language:
+                    merged_examples[language_column_name].append(example[language_column_name])
                 merged_examples[speaker_column_name].append(example[speaker_column_name])
                 merged_examples[duration_column_name].append(example[duration_column_name])
                 merged_examples[audio_column_name].append([example[audio_column_name]])
@@ -183,11 +208,18 @@ def main(
 
         # add last concatenated text as prev text
         # todo: condition on all or last example
-        merged_examples["prev_text"] = [""]
-        for idx in range(1, len(merged_examples["condition_on_prev"])):
-            merged_examples["prev_text"].append(
-                merged_examples[text_column_name][idx - 1] if merged_examples["condition_on_prev"][idx] else ""
-            )
+        if has_text:
+            merged_examples[f"prev_{text_column_name}"] = [""]
+            for idx in range(1, len(merged_examples["condition_on_prev"])):
+                merged_examples[f"prev_{text_column_name}"].append(
+                    merged_examples[text_column_name][idx - 1] if merged_examples["condition_on_prev"][idx] else ""
+                )
+        if has_whisper_transcript:
+            merged_examples[f"prev_{whisper_transcript_column_name}"] = [""]
+            for idx in range(1, len(merged_examples["condition_on_prev"])):
+                merged_examples[f"prev_{whisper_transcript_column_name}"].append(
+                    merged_examples[whisper_transcript_column_name][idx - 1] if merged_examples["condition_on_prev"][idx] else ""
+                )
 
         # concat audios
         for idx in range(len(merged_examples[audio_column_name])):

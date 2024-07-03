@@ -32,7 +32,10 @@ conda activate asr
 # https://github.com/pytorch/audio/issues/1021#issuecomment-726915239
 # export OMP_NUM_THREADS="1"
 
-# hf env var
+# cuda
+# export CUDA_VISIBLE_DEVICES="4,5,6,7"
+
+# hf
 # export HF_HOME="/projects/bhuang/.cache/huggingface"
 export TOKENIZERS_PARALLELISM="false"
 # export BITSANDBYTES_NOWELCOME="1"
@@ -43,6 +46,8 @@ export HF_EVALUATE_OFFLINE="1"
 
 # Set your number of GPUs here
 num_gpus=4
+# CPUs
+num_workers=8
 
 #   --dtype "bfloat16" \
 # --max_label_length 128 \
@@ -73,7 +78,7 @@ $CMD run_pseudo_labelling_b.py \
     --id_column_name "id" \
     --duration_column_name "duration" \
     --sort_by_duration True \
-    --preprocessing_num_workers 64 \
+    --preprocessing_num_workers $num_workers \
     --pad_to_multiple_of 64 \
     --dataloader_num_workers 8 \
     --dtype "float16" \
@@ -85,7 +90,7 @@ $CMD run_pseudo_labelling_b.py \
     --max_label_length 448 \
     --generation_num_beams 1
 
-python ./scripts/compute_wer.py \
+python scripts/compute_wer.py \
     --input_data_file "$output_file" \
     --output_data_file "$final_output_file" \
     --num_workers 64

@@ -27,21 +27,23 @@ from normalizers import BasicTextNormalizer, EnglishTextNormalizer, FrenchTextNo
 timestamp_pat = re.compile(r"<\|(\d+\.\d+)\|>")
 
 
-def write_dataset_to_json(dataset, output_file_path, mode="w", default=str, ensure_ascii=False):
+def write_dataset_to_json(dataset, output_file_path, mode="w", encoding="utf-8", default=str, ensure_ascii=False):
     ds_iter = iter(dataset)
-    with open(output_file_path, mode, encoding="utf-8") as fo:
+    with open(output_file_path, mode, encoding=encoding) as fo:
         for _, sample in enumerate(tqdm(ds_iter, desc="Writing to json", total=len(dataset), unit=" samples")):
             fo.write(f"{json.dumps(sample, default=default, ensure_ascii=ensure_ascii)}\n")
 
+    print(f"Saved manifest into {output_file_path}")
+
 
 # Copied from transformers.models.whisper.tokenization_whisper.WhisperTokenizer._filter_timestamp_ids
-def _filter_timestamp_ids(token_ids):
+def _filter_timestamps(token_ids):
     return re.sub(timestamp_pat, "", token_ids)
 
 
 def main(
-    input_data_file,
-    output_data_file,
+    input_file_path,
+    output_file_path,
     text_column_name="text",
     language=None,
     num_workers=64,
@@ -62,7 +64,7 @@ def main(
 
     def normalizer(s):
         # remove timstamps
-        s = _filter_timestamp_ids(s)
+        s = _filter_timestamps(s)
 
         # normalize text
         # w/o "-"
@@ -70,40 +72,62 @@ def main(
 
         return s
 
-    ext = input_data_file.rsplit(".", 1)[-1]
-    dataset = load_dataset(ext, data_files=input_data_file, split="train")
+    ext = input_file_path.rsplit(".", 1)[-1]
+    dataset = load_dataset(ext, data_files=input_file_path, split="train")
     print(dataset)
 
     metric = evaluate.load("wer")
 
     def process_function(example):
-        # todo: we assume here both pred and label are string
-        # example["whisper_transcript"] = id_pred_mappings[example[id_column_name]]
-        example["wer_ortho"] = 100 * metric.compute(
-            predictions=[example["whisper_transcript"]], references=[example[text_column_name]]
-        )
-
         # normalize everything and re-compute the WER
         example["whisper_transcript_norm"] = normalizer(example["whisper_transcript"])
         example[f"{text_column_name}_norm"] = normalizer(example[text_column_name])
 
+        example["whisper_transcript_wo_timestamp"] = _filter_timestamps(example["whisper_transcript"])
+
+        example["wer_ortho"] = -1
         example["wer"] = -1
         if len(example[f"{text_column_name}_norm"]) > 0:
+            # can't compute wer when reference=" "
+            # example["wer_ortho"] = 100 * metric.compute(
+            #     predictions=[example["whisper_transcript"]], references=[example[text_column_name]]
+            # )
+            example["wer_ortho"] = 100 * metric.compute(
+                predictions=[example["whisper_transcript_wo_timestamp"]], references=[example[text_column_name]]
+            )
             example["wer"] = 100 * metric.compute(
                 predictions=[example["whisper_transcript_norm"]], references=[example[f"{text_column_name}_norm"]]
             )
 
         return example
 
-    dataset = dataset.map(process_function, num_proc=num_workers, desc="computing WER")
-    dataset = dataset.filter(lambda x: x["wer"] != -1, num_proc=num_workers)
+    dataset = dataset.map(
+        process_function,
+        # keep_in_memory=True,
+        load_from_cache_file=False,
+        num_proc=num_workers,
+        desc="computing WER",
+    )
+
+    dataset = dataset.filter(
+        lambda x: x["wer"] != -1,
+        # keep_in_memory=True,
+        load_from_cache_file=False,
+        num_proc=num_workers,
+        desc="filtering wer==-1"
+    )
     print(dataset)
 
-    write_dataset_to_json(dataset, output_file_path=output_data_file, mode="w")
-
-    wer_ortho = 100 * metric.compute(predictions=dataset["whisper_transcript"], references=dataset[text_column_name])
+    # wer_ortho = 100 * metric.compute(predictions=dataset["whisper_transcript"], references=dataset[text_column_name])
+    wer_ortho = 100 * metric.compute(predictions=dataset["whisper_transcript_wo_timestamp"], references=dataset[text_column_name])
     wer = 100 * metric.compute(predictions=dataset["whisper_transcript_norm"], references=dataset[f"{text_column_name}_norm"])
     print(f"WER: {wer_ortho:.4f}%, Norm WER: {wer:.4f}%")
+
+    # remove tmp col
+    dataset = dataset.remove_columns("whisper_transcript_wo_timestamp")
+
+    # export
+    write_dataset_to_json(dataset, output_file_path=output_file_path, mode="w")
 
 
 if __name__ == "__main__":
