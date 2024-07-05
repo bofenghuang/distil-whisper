@@ -66,8 +66,9 @@ model_name_or_path="/gpfsdswork/projects/rech/cjc/commun/models/whisper/whisper-
 # input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it100/train_concatenated/train_espnet_yodas_manifest.json"
 # input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it101/train_concatenated/train_espnet_yodas_manifest.json"
 
-input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it000/train_concatenated/train_espnet_yodas_manifest_0${SLURM_ARRAY_TASK_ID}.json"
-# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it100/train_concatenated/train_espnet_yodas_manifest_0${SLURM_ARRAY_TASK_ID}.json"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it000/train_concatenated/splitted_files/train_espnet_yodas_manifest_0${SLURM_ARRAY_TASK_ID}.json"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it100/train_concatenated/splitted_files/train_espnet_yodas_manifest_0${SLURM_ARRAY_TASK_ID}.json"
+input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it101/train_concatenated/splitted_files/train_espnet_yodas_manifest_0${SLURM_ARRAY_TASK_ID}.json"
 
 # tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/-/\_/g" -e "s/[ |=/]/-/g")"
 # outdir="./outputs/data/$tmp_model_id"

@@ -236,9 +236,10 @@ def main(
         concatenate_examples,
         batched=True,
         batch_size=preprocessing_batch_size,
-        num_proc=preprocessing_num_workers,
-        remove_columns=dataset.column_names,
+        keep_in_memory=True,
         load_from_cache_file=False,
+        remove_columns=dataset.column_names,
+        num_proc=preprocessing_num_workers,
         desc="concatenating...",
     )
     _print_ds_info(dataset, duration_column_name)

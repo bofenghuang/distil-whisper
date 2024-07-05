@@ -50,8 +50,9 @@ def main(
 
     dataset = dataset.map(
         lambda x: {"whisper_transcript": normalize_text(x["whisper_transcript"])},
-        num_proc=num_workers,
+        keep_in_memory=True,
         load_from_cache_file=False,
+        num_proc=num_workers,
         desc="normalizing",
     )
     # _print_ds_info(dataset)

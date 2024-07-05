@@ -103,7 +103,7 @@ def main(
 
     dataset = dataset.map(
         process_function,
-        # keep_in_memory=True,
+        keep_in_memory=True,
         load_from_cache_file=False,
         num_proc=num_workers,
         desc="computing WER",
@@ -111,7 +111,7 @@ def main(
 
     dataset = dataset.filter(
         lambda x: x["wer"] != -1,
-        # keep_in_memory=True,
+        keep_in_memory=True,
         load_from_cache_file=False,
         num_proc=num_workers,
         desc="filtering wer==-1"

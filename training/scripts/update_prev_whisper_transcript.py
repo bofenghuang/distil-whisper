@@ -9,7 +9,8 @@ from typing import Optional
 
 import fire
 import numpy as np
-from datasets import load_dataset
+import pandas as pd
+from datasets import Dataset, load_dataset
 from tqdm import tqdm
 
 
@@ -32,36 +33,45 @@ def main(
     max_samples: Optional[int] = None,
 ):
     # load dataset
-    dataset = load_dataset("json", data_files=input_file_path, split="train")
-    print(dataset)
+    # dataset = load_dataset("json", data_files=input_file_path, split="train")
+    # print(dataset)
 
-    # id_2_whisper_transcript_mappings = dict(zip(dataset[id_column_name], dataset[whisper_transcript_column_name]))
+    # # sort
+    # dataset = dataset.sort(id_column_name)
 
+    # # debug
+    # if max_samples is not None:
+    #     dataset = dataset.select(range(max_samples))
+
+    # # use too much ram!!
     # dataset = dataset.map(
-    #     lambda x: {
+    #     lambda x, idx: {
     #         f"prev_{whisper_transcript_column_name}": (
-    #             id_2_whisper_transcript_mappings[x[id_column_name] - 1] if x["condition_on_prev"] else ""
+    #             dataset[whisper_transcript_column_name][idx - 1] if x["condition_on_prev"] else ""
     #         )
     #     },
+    #     with_indices=True,
     #     # keep_in_memory=True,
     #     load_from_cache_file=False,
     #     num_proc=num_workers,
     # )
 
-    # sort
-    dataset = dataset.sort(id_column_name)
+    # don't infer data type
+    data_df = pd.read_json(input_file_path, lines=True, dtype=False)
 
-    # debug
-    if max_samples is not None:
-        dataset = dataset.select(range(max_samples))
+    # sort
+    data_df.sort_values(id_column_name, inplace=True)
+
+    # check if all utt exist
+    assert int(data_df.loc[data_df.index[-1], id_column_name]) + 1 == data_df.shape[0]
+
+    data_df[f"prev_{whisper_transcript_column_name}"] = data_df[whisper_transcript_column_name].shift(1, fill_value="")
+
+    dataset = Dataset.from_pandas(data_df, preserve_index=False)
 
     dataset = dataset.map(
-        lambda x, idx: {
-            f"prev_{whisper_transcript_column_name}": (
-                dataset[whisper_transcript_column_name][idx - 1] if x["condition_on_prev"] else ""
-            )
-        },
-        # keep_in_memory=True,
+        lambda x: {f"prev_{whisper_transcript_column_name}": x[f"prev_{whisper_transcript_column_name}"] if x["condition_on_prev"] else ""},
+        keep_in_memory=True,
         load_from_cache_file=False,
         num_proc=num_workers,
     )

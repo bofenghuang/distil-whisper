@@ -8,7 +8,7 @@
 #SBATCH --ntasks-per-node=1          # crucial - only 1 task per dist per node!
 #SBATCH --cpus-per-task=40           # number of cores per tasks
 #SBATCH --time 20:00:00              # maximum execution time (HH:MM:SS)
-#SBATCH --qos=qos_gpu-t3             # QoS
+#SBATCH --qos=qos_cpu-t3             # QoS
 #SBATCH --hint=nomultithread         # we get physical cores not logical
 #SBATCH --partition=cpu_p1
 #SBATCH --account=cjc@cpu            # cpu accounting
@@ -44,7 +44,7 @@ export HF_DATASETS_OFFLINE="1"
 export HF_EVALUATE_OFFLINE="1"
 
 # CPUs
-num_workers=320
+num_workers=80
 
 input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/it/train/train_mozilla-foundation_common_voice_17_0_manifest_whisper_large_v3.json"
 
@@ -66,11 +66,11 @@ python scripts/compute_wer.py \
 # filter (upper-case, wer)
 python scripts/filter_whisper_transcript.py \
     --input_file_path "${input_file%.*}_norm_wer.json" \
-    --output_file_path "${input_file%.*}_norm_wer_filt10.json" \
+    --output_file_path "${input_file%.*}_norm_wer_filt.json" \
     --wer_threshold 10 \
     --num_workers $num_workers
 
-input_file="${input_file%.*}_norm_wer_filt10.json"
+input_file="${input_file%.*}_norm_wer_filt.json"
 output_file="${input_file/\/train\//\/train_concatenated\/}"
 
 # concat

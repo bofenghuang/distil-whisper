@@ -7,8 +7,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1          # crucial - only 1 task per dist per node!
 #SBATCH --cpus-per-task=40           # number of cores per tasks
-#SBATCH --time 20:00:00              # maximum execution time (HH:MM:SS)
-#SBATCH --qos=qos_gpu-t3             # QoS
+#SBATCH --time 10:00:00              # maximum execution time (HH:MM:SS)
+#SBATCH --qos=qos_cpu-t3             # QoS
 #SBATCH --hint=nomultithread         # we get physical cores not logical
 #SBATCH --partition=cpu_p1
 #SBATCH --account=cjc@cpu            # cpu accounting
@@ -44,7 +44,7 @@ export HF_DATASETS_OFFLINE="1"
 export HF_EVALUATE_OFFLINE="1"
 
 # CPUs
-num_workers=320
+num_workers=80
 
 # input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/facebook/multilingual_librispeech/italian/train_concatenated/train_facebook_multilingual_librispeech_manifest_whisper_large_v3.json"
 # input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/facebook/voxpopuli/it/train_concatenated/train_facebook_voxpopuli_manifest_whisper_large_v3.json"

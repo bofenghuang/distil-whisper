@@ -40,7 +40,7 @@ def main(
     input_file_path: str,
     output_file_path: str,
     wer_threshold: Optional[int] = None,
-    min_duration: Optional[int] = 5,
+    min_duration: Optional[int] = None,
     num_workers: int = 8,
     max_samples: Optional[int] = None,
 ):
@@ -81,8 +81,9 @@ def main(
     dataset = dataset.filter(
         filter_function,
         # lambda *x, **y: not filter_function(*x, **y),  # debug
-        num_proc=num_workers,
+        keep_in_memory=True,
         load_from_cache_file=False,
+        num_proc=num_workers,
         desc="filtering",
     )
     _print_ds_info(dataset)
