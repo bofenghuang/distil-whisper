@@ -101,3 +101,5 @@ python scripts/compute_wer.py \
     --input_file_path "$output_file" \
     --output_file_path "${output_file%.*}_wer.json" \
     --num_workers $num_workers
+
+echo "END TIME: $(date)"

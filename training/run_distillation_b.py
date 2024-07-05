@@ -37,6 +37,7 @@ import torch.nn as nn
 import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
+from accelerate.utils import set_seed
 from datasets import (
     DatasetDict,
     IterableDataset,
@@ -45,8 +46,8 @@ from datasets import (
     interleave_datasets,
     load_dataset,
 )
-from huggingface_hub import Repository, create_repo
-from torch.utils.data import DataLoader
+from huggingface_hub import create_repo, get_full_repo_name, upload_folder
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from transformers import (
     AddedToken,
@@ -57,16 +58,17 @@ from transformers import (
     WhisperForConditionalGeneration,
     WhisperProcessor,
     WhisperTokenizerFast,
-    get_scheduler,
-    set_seed,
+    get_scheduler
 )
 from transformers.modeling_outputs import BaseModelOutput
-from transformers.models.whisper.english_normalizer import BasicTextNormalizer, EnglishTextNormalizer
+# from transformers.models.whisper.english_normalizer import BasicTextNormalizer, EnglishTextNormalizer
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
+import math
 import soundfile as sf
-from text_normalization.normalize_french import FrenchTextNormalizer
+# from text_normalization.normalize_french import FrenchTextNormalizer
+from normalizers import BasicTextNormalizer, EnglishTextNormalizer, FrenchTextNormalizer
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.34.0.dev0")
@@ -128,6 +130,17 @@ class ModelArguments:
             )
         },
     )
+    attn_implementation: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": (
+                "Which attention implementation to use in the encoder and decoder attention layers. Can be one of:\n"
+                "1. `eager` or `None`: default Transformers attention implementation.\n"
+                "2. `sdpa`: Flash Attention through PyTorch SDPA. Requires `torch>=2.1`. Recommended for hardware where Flash Attention 2 is not supported, e.g. Turing GPUs, (T4, RTX 2080).\n"
+                "3. `flash_attn_2`: Flash Attention 2 through the Flash Attention package https://github.com/Dao-AILab/flash-attention. **Always** recommended on supported hardware (Ampere, Ada, or Hopper GPUs, e.g., A100, RTX 3090, RTX 4090, H100)."
+            )
+        },
+    )
     apply_spec_augment: bool = field(
         default=False,
         metadata={
@@ -137,6 +150,22 @@ class ModelArguments:
             )
         },
     )
+    mask_time_prob: float = field(default=0.05, metadata={"help": ""})
+    mask_time_length: float = field(default=10, metadata={"help": ""})
+    mask_time_min_masks: float = field(default=2, metadata={"help": ""})
+    mask_feature_prob: float = field(default=0.0, metadata={"help": ""})
+    mask_feature_length: float = field(default=10, metadata={"help": ""})
+    mask_feature_min_masks: float = field(default=0, metadata={"help": ""})
+
+    def __post_init__(self):
+        if self.attn_implementation not in [None, "eager", "sdpa", "flash_attention_2"]:
+            raise ValueError(
+                f"Got `--attn_implementation={self.attn_implementation}`, which is an invalid attention type. Should be one of:\n"
+                "1. `eager` or `None`: default Transformers attention implementation.\n"
+                "2. `sdpa`: Flash Attention through PyTorch SDPA. Requires `torch>=2.1`. Recommended for hardware where Flash Attention 2 is not supported, e.g. Turing GPUs, (T4, RTX 2080).\n"
+                "3. `flash_attn_2`: Flash Attention 2 through the Flash Attention package https://github.com/Dao-AILab/flash-attention. **Always** recommended on supported hardware (Ampere, Ada, or Hopper GPUs, e.g., A100, RTX 3090, RTX 4090, H100)."
+            )
+
 
 @dataclass
 class DataTrainingArguments:
@@ -198,6 +227,10 @@ class DataTrainingArguments:
         default=None,
         metadata={"help": "The number of processes to use for the preprocessing if using non-streaming mode."},
     )
+    preprocessing_batch_size: Optional[int] = field(
+        default=256,
+        metadata={"help": "Number of examples per batch provided to the `prepare_dataset` function."},
+    )
     max_train_samples: Optional[int] = field(
         default=None,
         metadata={
@@ -226,17 +259,43 @@ class DataTrainingArguments:
         default="text",
         metadata={"help": ("The name of the dataset column containing the text data in the evaluation set.")},
     )
-    max_duration_in_seconds: float = field(
-        default=30.0,
+    duration_column_name: str = field(
+        default="duration",
+        metadata={"help": ""},
+    )
+    prev_text_column_name: str = field(
+        default="prev_text",
+        metadata={"help": ""},
+    )
+    condition_on_prev_column_name: str = field(
+        default="condition_on_prev",
+        metadata={"help": ""},
+    )
+    language_column_name: str = field(
+        default="_language",
+        metadata={"help": ""},
+    )
+    sort_by_duration: bool = field(
+        default=False,
+        metadata={"help": ""},
+    )
+    max_duration_in_seconds: Optional[float] = field(
+        # default=30.0,
+        default=None,
         metadata={"help": "Filter audio files that are longer than `max_duration_in_seconds` seconds"},
     )
-    min_duration_in_seconds: float = field(
-        default=0.0,
+    min_duration_in_seconds: Optional[float] = field(
+        # default=0.0,
+        default=None,
         metadata={"help": "Filter audio files that are shorter than `min_duration_in_seconds` seconds"},
     )
     max_label_length: int = field(
-        default=128,
+        default=448,
         metadata={"help": "Truncate transcriptions that are longer `max_label_length` tokens."},
+    )
+    pad_to_multiple_of: int = field(
+        default=8,
+        metadata={"help": ""},
     )
     pad_target_to_multiple_of: Optional[int] = field(
         default=None,
@@ -288,6 +347,14 @@ class DataTrainingArguments:
             "transcriptions."
         },
     )
+    use_pseudo_labels: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether or not to use pseudo-label transcriptions as the targets. If True, the pseudo-labels "
+            "must be in the dataset column `whisper_transcript` from the previous pseudo-labelling step. This is "
+            "not currently yet configurable."
+        },
+    )
     timestamp_probability: float = field(
         default=0.2, metadata={"help": "Probability for training on timestamped tokens if the data contains it."}
     )
@@ -318,8 +385,12 @@ class DataTrainingArguments:
         metadata={"help": "The name of the wandb project."},
     )
     wandb_run_name: str = field(
-        default="distil-whisper",
+        default=None,
         metadata={"help": "The name of the wandb run."},
+    )
+    wandb_dir: str = field(
+        default="./wandb",
+        metadata={"help": "The dir where wandb metadata will be stored."},
     )
 
 
@@ -333,6 +404,18 @@ class DistillationTrainingArguments(Seq2SeqTrainingArguments):
                 "copied from the teacher model."
             )
         },
+    )
+    freeze_decoder: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to freeze the entire decoder model. Note that the decoder input embeddings are **not** frozen, since they are tied to the LM head."
+            )
+        },
+    )
+    freeze_embed_positions: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to freeze the decoder embedding positions."},
     )
     temperature: Optional[float] = field(
         default=2.0, metadata={"help": "Temperature to anneal the logits when computing the softmax."}
@@ -357,12 +440,178 @@ class DistillationTrainingArguments(Seq2SeqTrainingArguments):
     )
 
 
-def has_timestamp_tokens(input_str):
+timestamp_pat = re.compile(r"<\|\d+\.\d+\|>")
+
+
+def has_timestamps(input_str):
     """
     Identify whether the input string contains timestamp tokens, of the form <|0.00|>, by searching for
     pairs of left and right-angle brackets.
     """
-    return bool(re.search("\<[^\>]*\>", input_str))
+    # return bool(re.search("\<[^\>]*\>", input_str))
+    return bool(timestamp_pat.search(input_str))
+
+
+def filter_timestamps(s):
+    s = timestamp_pat.sub("", s)
+    s = re.sub(r"\s+", " ", s).strip()  # replace any successive whitespace characters with a space
+    return s
+
+
+class SpeechDataset(Dataset):
+    def __init__(
+        self,
+        dataset: Dataset,
+        processor: Any,
+        audio_column_name: str,
+        text_column_name: str,
+        duration_column_name: str,
+        prev_text_column_name: str,
+        condition_on_prev_column_name: str,
+        language_column_name: str,
+        # language: str,
+        task: str,
+        timestamp_probability: float,
+        condition_on_prev_probability: float,
+        is_train: bool,
+        forward_attention_mask: bool,
+        prompt_cutoff_length: int,
+        max_target_length: int,
+        sort_by_duration: bool = False,
+        # augmentator: Any,
+    ):
+        self.processor = processor
+        self.audio_column_name = audio_column_name
+        self.text_column_name = text_column_name
+        self.duration_column_name = duration_column_name
+        self.prev_text_column_name = prev_text_column_name
+        self.condition_on_prev_column_name = condition_on_prev_column_name
+        self.language_column_name = language_column_name
+        self.sort_by_duration = sort_by_duration
+
+        # self.language = language
+        self.task = task
+        self.timestamp_probability = timestamp_probability
+        self.condition_on_prev_probability = condition_on_prev_probability
+        self.is_train = is_train
+        self.forward_attention_mask = forward_attention_mask
+        self.prompt_cutoff_length = prompt_cutoff_length
+        self.max_target_length = max_target_length
+
+        # self.model_input_name = processor.feature_extractor.model_input_names[0]
+        self.model_input_name = processor.model_input_names[0]
+        self.decoder_prev_token_id = processor.tokenizer.all_special_ids[-3]  # <|startofprev|>
+        self.timestamp_begin = processor.tokenizer.all_special_ids[-1]  # 50364 (<|notimestamps|>), where 50365 (<|0.00|>)
+
+        self.dataset = self.preprocess(dataset)
+        # print(f"Loaded {len(self.dataset)} examples")
+
+    def preprocess(self, dataset: Dataset):
+        # sort by duration
+        if self.sort_by_duration:
+            # segments = sorted(segments, key=lambda x: x[self.duration_column_name], reverse=True)
+            dataset = dataset.sort(self.duration_column_name, reverse=True)
+
+        return dataset
+
+    def __getitem__(self, n: int):
+        # 1. read the audio arrays
+        # 2. Convert the audio arrays to log-mel spectrogram inputs
+        # 3. Possibly filter the timestamp tokens from the token ids (depending on the timestamp probability)
+        # 4. Possibly add prompt tokens if conditioning on previous text (depending on the conditioning probability)
+
+        sample = self.dataset[n]
+
+        # read waveform
+        waveform, sample_rate = sf.read(
+            sample[self.audio_column_name], start=0, frames=-1, dtype="float32", always_2d=True
+        )
+        waveform = waveform[:, 0]
+
+        # online audio augmentation
+        # if self.augmentator is not None:
+        #     # don't know why here is a list but not np array
+        #     # waveform = np.array(waveform, dtype=np.float32)
+        #     waveform = self.augmentator(waveform, sample_rate=sample_rate)
+
+        # compute log-Mel input features from input audio array
+        # features are padded to (128, 3000)
+        input_dict = self.processor.feature_extractor(
+            waveform,
+            sampling_rate=sample_rate,
+            return_attention_mask=self.forward_attention_mask
+        )
+        # different key from others tokenizers
+        processed_input = {self.model_input_name: input_dict.get(self.model_input_name)[0]}
+        if self.forward_attention_mask:
+            processed_input["attention_mask"] = input_dict.get("attention_mask")[0]
+
+        processed_input["input_length"] = waveform.shape[0]
+
+        # process targets
+        # should better do audio augmentation / text normalization before running this script
+        input_str = sample[self.text_column_name]
+
+        if self.is_train and has_timestamps(input_str):
+            predict_timestamps = bool(np.random.binomial(1, self.timestamp_probability))
+            if not predict_timestamps:
+                # filter timestamp token ids
+                # also need to insert the <|notimestamps|> task token
+                # input_str = self.processor.tokenizer._filter_timestamp_ids(input_str)
+                # also remove extra space after removing timestamps
+                input_str = filter_timestamps(input_str)
+        else:
+            predict_timestamps = False
+
+        # dynamically set predict_timestamps
+        # self.processor.tokenizer.set_prefix_tokens(
+        #     language=self.language, task=self.task, predict_timestamps=predict_timestamps
+        # )
+        # set language by sample
+        self.processor.tokenizer.set_prefix_tokens(
+            language=sample[self.language_column_name], task=self.task, predict_timestamps=predict_timestamps
+        )
+
+        # encode target text to label ids
+        # feature["labels"] = self.processor.tokenizer(input_str).input_ids
+        token_ids = self.processor.tokenizer(input_str).input_ids
+
+        # prepend context with probability
+        # only for training set
+        if self.is_train and sample[self.condition_on_prev_column_name]:
+            # check whether to condition on previous text - we do this with probability condition_on_prev_probability
+            condition_on_prev = bool(np.random.binomial(1, self.condition_on_prev_probability))
+            if condition_on_prev:
+                # don't return the standard task tokens for prompt_ids
+                prompt_ids = self.processor.tokenizer(sample[self.prev_text_column_name], add_special_tokens=False).input_ids
+                # strip timestamp tokens from prompt tokens when not predicting timestamps
+                # the predict_timestamps arg in set_prefix_tokens only controls if preprend <|notimestamps|> task token
+                if not predict_timestamps:
+                    prompt_ids = [token for token in prompt_ids if token < self.timestamp_begin]
+                if len(prompt_ids) > 0:
+                    # check that the length of the prompt does not exceed more than half the max label length (224)
+                    if len(prompt_ids) + 1 > self.prompt_cutoff_length:
+                        prompt_ids = prompt_ids[-self.prompt_cutoff_length + 1:]
+                    # and that the total length of the labels does not exceed the max label length (448)
+                    if len(prompt_ids + token_ids) + 1 > self.max_target_length:
+                        trim_length = len(prompt_ids + token_ids) + 1 - self.max_target_length
+                        prompt_ids = prompt_ids[trim_length:]
+                    # add the special <|startofprev|> token
+                    prompt_ids = [self.decoder_prev_token_id] + prompt_ids
+                    # prompt_ids = [self.decoder_prev_token_id] + prompt_ids[self.timestamp_position: -1]
+
+                token_ids = prompt_ids + token_ids
+
+        processed_input["labels"] = token_ids
+
+        return processed_input
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def shuffle(self, seed):
+        self.dataset = self.dataset.shuffle(seed)
+        return self
 
 
 @dataclass
@@ -395,95 +644,19 @@ class DataCollatorSpeechSeq2SeqWithPadding:
     processor: Any
     decoder_start_token_id: int
     decoder_prev_token_id: int
-    audio_column_name: str
-    text_column_name: str
-    timestamp_probability: float
-    language: str
-    task: str
-    is_train: bool
     forward_attention_mask: bool
     input_padding: Union[bool, str] = "max_length"
     target_padding: Union[bool, str] = "max_length"
     max_target_length: Optional[int] = None
-    condition_on_prev_probability: Optional[float] = None
-    timestamp_begin: Optional[int] = None
-    timestamp_position: Optional[int] = None
+    pad_to_multiple_of: Optional[int] = None
 
     def __call__(self, features: List[Dict[str, Union[List[int], np.ndarray]]]) -> Dict[str, np.ndarray]:
         # split inputs and labels since they have to be of different lengths and need
         # different padding methods
         model_input_name = self.processor.model_input_names[0]
 
-        all_token_ids_unprompted = []
-
-        for feature in features:
-            # read waveform
-            waveform, sample_rate = sf.read(
-                feature[self.audio_column_name], start=0, frames=-1, dtype="float32", always_2d=True
-            )
-            waveform = waveform[:, 0]
-
-            feature["input_length"] = waveform.shape[0]
-
-            # if self.augmentator is not None:
-            #     # don't know why here is a list but not np array
-            #     # waveform = np.array(waveform, dtype=np.float32)
-            #     waveform = self.augmentator(waveform, sample_rate=sample_rate)
-
-            # compute log-Mel input features from input audio array
-            inputs = self.processor.feature_extractor(
-                waveform, sampling_rate=sample_rate,
-                return_attention_mask=self.forward_attention_mask
-            )
-            # different key from others tokenizers
-            feature[model_input_name] = inputs.get(model_input_name)[0]
-            if self.forward_attention_mask:
-                feature["attention_mask"] = inputs.get("attention_mask")[0]
-
-            # process targets
-            # should better do audio augmentation / text normalization before runnign this script
-            input_str = feature[self.text_column_name]
-
-            # pseudo-labelled transcriptions have been decoded to text (`decode_token_ids=True`)
-            # has_timestamps = has_timestamp_tokens(input_str)
-
-            if self.is_train and has_timestamp_tokens(input_str):
-                predict_timestamps = bool(np.random.binomial(1, self.timestamp_probability))
-                if not predict_timestamps:
-                    # filter timestamp token ids if not part of the prediction task
-                    input_str = self.processor.tokenizer._filter_timestamp_ids(input_str)
-            else:
-                predict_timestamps = False
-
-            # dynamically set predict_timestamps
-            self.processor.tokenizer.set_prefix_tokens(
-                language=self.language, task=self.task, predict_timestamps=predict_timestamps
-            )
-
-            # encode target text to label ids
-            # feature["labels"] = self.processor.tokenizer(input_str).input_ids
-            token_ids = self.processor.tokenizer(input_str).input_ids
-
-            # prepend context with probability
-            # only for training set
-            if self.is_train:
-                all_token_ids_unprompted.append(token_ids)
-                # check whether to condition on previous text - we do this with probability condition_on_prev_probability
-                condition_on_prev = bool(np.random.binomial(1, self.condition_on_prev_probability))
-                if condition_on_prev and len(all_token_ids_unprompted) > 1:
-                    # prompt ids are the penultimate token ids in the batch
-                    prompt_ids = all_token_ids_unprompted[-2]
-                    # strip timestamp tokens from prompt
-                    prompt_ids = [token for token in prompt_ids if token < self.timestamp_begin]
-                    if len(prompt_ids) > 0:
-                        # remove the standard task tokens and add the special <|startofprev|> token
-                        prompt_ids = [self.decoder_prev_token_id] + prompt_ids[self.timestamp_position:-1]
-                    if len(prompt_ids + token_ids) < self.max_target_length:
-                        token_ids = prompt_ids + token_ids
-
-            feature["labels"] = token_ids
-
         # dataloader returns a list of features which we convert to a dict
+        # input_features = {"input_features": [feature["input_features"] for feature in features]}
         input_features = {model_input_name: [feature[model_input_name] for feature in features]}
         label_features = {"input_ids": [feature["labels"] for feature in features]}
 
@@ -491,6 +664,7 @@ class DataCollatorSpeechSeq2SeqWithPadding:
         batch = self.processor.feature_extractor.pad(
             input_features,
             padding=self.input_padding,
+            pad_to_multiple_of=self.pad_to_multiple_of,  # 128 doesn't need to pad but perhaps useful for 80 (v1/v2)
             return_tensors="pt",
         )
 
@@ -508,16 +682,19 @@ class DataCollatorSpeechSeq2SeqWithPadding:
 
         # shift labels to the right to get decoder input ids
         labels = labels_batch["input_ids"]
+        # strip last token for decoder input
         decoder_input_ids = labels[:, :-1]
+        # strip first token (bos/prev_start) for decoder label
         labels = labels[:, 1:]
         labels_mask = labels_batch.attention_mask[:, 1:]
 
         # replace padding with -100 to ignore correctly when computing the loss
         labels = labels.masked_fill(labels_mask.ne(1), -100)
 
-        # for condition on previous text
+        # for condition_on_prev
         # replace initial prompt tokens with -100 to ignore correctly when computing the loss
         bos_index = torch.argmax((labels == self.decoder_start_token_id).long(), dim=1)
+        bos_index = torch.where(bos_index > 0, bos_index + 1, bos_index)
         prompt_mask = torch.arange(labels.shape[1]) < bos_index[:, None]
         labels = torch.where(prompt_mask, -100, labels)
 
@@ -586,141 +763,163 @@ def log_pred(
         )
 
 
-def convert_dataset_str_to_list(
-    dataset_names,
-    dataset_config_names,
-    splits=None,
-    text_column_names=None,
-    dataset_samples=None,
-    default_split="train",
-) -> List[Dict]:
-    """
-    Given three lists of dataset names, configs and splits, this function groups the corresponding
-    names/configs/splits. Each dataset is assigned a unique dictionary with these metadata values, and the
-    function returns a list of dictionaries, one for each dataset.
-    """
-    if isinstance(dataset_names, str):
-        dataset_names = dataset_names.split("+")
-        dataset_config_names = dataset_config_names.split("+")
-        splits = splits.split("+") if splits is not None else None
-        text_column_names = text_column_names.split("+") if text_column_names is not None else None
-        dataset_samples = dataset_samples.split("+") if dataset_samples is not None else None
+# def convert_dataset_str_to_list(
+#     dataset_names,
+#     dataset_config_names,
+#     splits=None,
+#     text_column_names=None,
+#     dataset_samples=None,
+#     default_split="train",
+# ) -> List[Dict]:
+#     """
+#     Given three lists of dataset names, configs and splits, this function groups the corresponding
+#     names/configs/splits. Each dataset is assigned a unique dictionary with these metadata values, and the
+#     function returns a list of dictionaries, one for each dataset.
+#     """
+#     if isinstance(dataset_names, str):
+#         dataset_names = dataset_names.split("+")
+#         dataset_config_names = dataset_config_names.split("+") if dataset_config_names is not None else None
+#         splits = splits.split("+") if splits is not None else None
+#         text_column_names = text_column_names.split("+") if text_column_names is not None else None
+#         dataset_samples = dataset_samples.split("+") if dataset_samples is not None else None
 
-    # basic checks to ensure we've got the right number of datasets/configs/splits/columns/probs
-    if len(dataset_names) != len(dataset_config_names):
-        raise ValueError(
-            f"Ensure one config is passed for each dataset, got {len(dataset_names)} datasets and"
-            f" {len(dataset_config_names)} configs."
-        )
+#     # basic checks to ensure we've got the right number of datasets/configs/splits/columns/probs
+#     if dataset_config_names is not None and len(dataset_names) != len(dataset_config_names):
+#         raise ValueError(
+#             f"Ensure one config is passed for each dataset, got {len(dataset_names)} datasets and"
+#             f" {len(dataset_config_names)} configs."
+#         )
 
-    if splits is not None and len(splits) != len(dataset_names):
-        raise ValueError(
-            f"Ensure one split is passed for each dataset, got {len(dataset_names)} datasets and {len(splits)} splits."
-        )
+#     if splits is not None and len(splits) != len(dataset_names):
+#         raise ValueError(
+#             f"Ensure one split is passed for each dataset, got {len(dataset_names)} datasets and {len(splits)} splits."
+#         )
 
-    if text_column_names is not None and len(text_column_names) != len(dataset_names):
-        raise ValueError(
-            f"Ensure one text column name is passed for each dataset, got {len(dataset_names)} datasets and"
-            f" {len(text_column_names)} text column names."
-        )
+#     if text_column_names is not None and len(text_column_names) != len(dataset_names):
+#         raise ValueError(
+#             f"Ensure one text column name is passed for each dataset, got {len(dataset_names)} datasets and"
+#             f" {len(text_column_names)} text column names."
+#         )
 
-    if dataset_samples is not None:
-        if len(dataset_samples) != len(dataset_names):
-            raise ValueError(
-                f"Ensure one sample is passed for each dataset, got {len(dataset_names)} datasets and "
-                f"{len(dataset_samples)} samples."
-            )
-        dataset_samples = [float(ds_sample) for ds_sample in dataset_samples]
-    else:
-        dataset_samples = [None] * len(dataset_names)
+#     if dataset_samples is not None:
+#         if len(dataset_samples) != len(dataset_names):
+#             raise ValueError(
+#                 f"Ensure one sample is passed for each dataset, got {len(dataset_names)} datasets and "
+#                 f"{len(dataset_samples)} samples."
+#             )
+#         dataset_samples = [float(ds_sample) for ds_sample in dataset_samples]
+#     else:
+#         dataset_samples = [None] * len(dataset_names)
 
-    text_column_names = (
-        text_column_names if text_column_names is not None else ["text" for _ in range(len(dataset_names))]
-    )
-    splits = splits if splits is not None else [default_split for _ in range(len(dataset_names))]
+#     dataset_config_names = (
+#         dataset_config_names if dataset_config_names is not None else ["default" for _ in range(len(dataset_names))]
+#     )
+#     text_column_names = (
+#         text_column_names if text_column_names is not None else ["text" for _ in range(len(dataset_names))]
+#     )
+#     splits = splits if splits is not None else [default_split for _ in range(len(dataset_names))]
 
-    dataset_names_dict = []
-    for i, ds_name in enumerate(dataset_names):
-        dataset_names_dict.append(
-            {
-                "name": ds_name,
-                "config": dataset_config_names[i],
-                "split": splits[i],
-                "text_column_name": text_column_names[i],
-                "samples": dataset_samples[i],
-            }
-        )
-    return dataset_names_dict
-
-
-def load_multiple_datasets(
-    dataset_names: Union[List, str],
-    dataset_config_names: Union[List, str],
-    splits: Optional[Union[List, str]] = None,
-    text_column_names: Optional[List] = None,
-    sampling_rate: Optional[int] = 16000,
-    stopping_strategy: Optional[str] = "first_exhausted",
-    dataset_samples: Optional[Union[List, np.array]] = None,
-    streaming: Optional[bool] = True,
-    seed: Optional[int] = None,
-    accelerator: Optional[Accelerator] = None,
-    **kwargs,
-) -> IterableDataset:
-    dataset_names_dict = convert_dataset_str_to_list(
-        dataset_names, dataset_config_names, splits, text_column_names, dataset_samples
-    )
-
-    if dataset_samples is not None:
-        dataset_samples = [ds_dict["samples"] for ds_dict in dataset_names_dict]
-        probabilities = np.array(dataset_samples) / np.sum(dataset_samples)
-    else:
-        probabilities = None
-
-    if len(dataset_names_dict) == 1:
-        dataset_dict = dataset_names_dict[0]
-        # we have a single dataset so just return it as is
-        return load_dataset(
-            dataset_dict["name"],
-            dataset_dict["config"],
-            split=dataset_dict["split"],
-            streaming=streaming,
-            **kwargs,
-        )
-
-    all_datasets = []
-    # iterate over the datasets we want to interleave
-    for dataset_dict in tqdm(
-        dataset_names_dict,
-        desc="Combining datasets...",
-        disable=not accelerator.is_local_main_process if accelerator is not None else False,
-    ):
-        dataset = load_dataset(
-            dataset_dict["name"],
-            dataset_dict["config"],
-            split=dataset_dict["split"],
-            streaming=streaming,
-            **kwargs,
-        )
-        # resample to specified sampling rate
-        dataset = dataset.cast_column("audio", datasets.features.Audio(sampling_rate))
-        if dataset_dict["text_column_name"] != "text":
-            dataset = dataset.rename_column(dataset_dict["text_column_name"], "text")
-        dataset = dataset.remove_columns(set(dataset.features.keys()) - {"audio", "text", "whisper_transcript"})
-        all_datasets.append(dataset)
-
-    if streaming:
-        interleaved_dataset = interleave_datasets(
-            all_datasets,
-            stopping_strategy=stopping_strategy,
-            probabilities=probabilities,
-            seed=seed,
-        )
-    else:
-        interleaved_dataset = concatenate_datasets(all_datasets)
-
-    return interleaved_dataset
+#     dataset_names_dict = []
+#     for i, ds_name in enumerate(dataset_names):
+#         dataset_names_dict.append(
+#             {
+#                 "name": ds_name,
+#                 "config": dataset_config_names[i],
+#                 "split": splits[i],
+#                 "text_column_name": text_column_names[i],
+#                 "samples": dataset_samples[i],
+#             }
+#         )
+#     return dataset_names_dict
 
 
+# def load_multiple_datasets(
+#     dataset_names: Union[List, str],
+#     dataset_config_names: Union[List, str],
+#     splits: Optional[Union[List, str]] = None,
+#     text_column_names: Optional[List] = None,
+#     sampling_rate: Optional[int] = 16000,
+#     stopping_strategy: Optional[str] = "first_exhausted",
+#     dataset_samples: Optional[Union[List, np.array]] = None,
+#     streaming: Optional[bool] = True,
+#     seed: Optional[int] = None,
+#     accelerator: Optional[Accelerator] = None,
+#     use_pseudo_labels: float = None,
+#     **kwargs,
+# ) -> IterableDataset:
+#     dataset_names_dict = convert_dataset_str_to_list(
+#         dataset_names, dataset_config_names, splits, text_column_names, dataset_samples
+#     )
+
+#     if dataset_samples is not None:
+#         dataset_samples = [ds_dict["samples"] for ds_dict in dataset_names_dict]
+#         probabilities = np.array(dataset_samples) / np.sum(dataset_samples)
+#     else:
+#         probabilities = None
+
+#     all_datasets = []
+#     # iterate over the datasets we want to interleave
+#     for dataset_dict in tqdm(
+#         dataset_names_dict,
+#         desc="Combining datasets...",
+#         disable=not accelerator.is_local_main_process if accelerator is not None else False,
+#     ):
+#         dataset = load_dataset(
+#             dataset_dict["name"],
+#             dataset_dict["config"],
+#             split=dataset_dict["split"],
+#             streaming=streaming,
+#             **kwargs,
+#         )
+#         # resample to specified sampling rate
+#         dataset = dataset.cast_column("audio", datasets.features.Audio(sampling_rate))
+#         dataset_features = dataset.features.keys()
+#         columns_to_keep = {"audio", "text"}
+
+#         if dataset_dict["text_column_name"] not in dataset_features:
+#             raise ValueError(
+#                 f"Text column name {dataset_dict['text_column_name']} not found in dataset"
+#                 f" '{dataset_dict['name']}'. Make sure to set `--text_column_name` to the"
+#                 f" correct text column - one of {', '.join(dataset_features)}."
+#             )
+
+#         # blanket renaming of all transcription columns to text
+#         if dataset_dict["text_column_name"] != "text":
+#             dataset = dataset.rename_column(dataset_dict["text_column_name"], "text")
+
+#         if use_pseudo_labels:
+#             if "whisper_transcript" not in dataset_features:
+#                 raise ValueError(
+#                     f"Pseudo-label column `whisper_transcript` not found in dataset {dataset_dict['name']}. Ensure"
+#                     "pseudo-labels are present in the dataset under this column name, or train directly on the text "
+#                     "labels by setting `--use_pseudo_labels=False` and defining the appropriate `--text_column_name`."
+#                 )
+#             columns_to_keep.add("whisper_transcript")
+
+#         if "condition_on_prev" in dataset_features:
+#             columns_to_keep.add("condition_on_prev")
+
+#         dataset_features = dataset.features.keys()
+#         dataset = dataset.remove_columns(set(dataset_features - columns_to_keep))
+#         all_datasets.append(dataset)
+
+#     if len(all_datasets) == 1:
+#         # we have a single dataset so just return it as is
+#         return all_datasets[0]
+
+#     if streaming:
+#         interleaved_dataset = interleave_datasets(
+#             all_datasets,
+#             stopping_strategy=stopping_strategy,
+#             probabilities=probabilities,
+#             seed=seed,
+#         )
+#     else:
+#         interleaved_dataset = concatenate_datasets(all_datasets)
+
+#     return interleaved_dataset
+
+# todo:
 def get_layers_to_supervise(student_layers: int, teacher_layers: int) -> Dict:
     """Helper function to map the student layer i to the teacher layer j whose output we'd like them to emulate. Used
     for MSE loss terms in distillation (hidden-states and activations). Student layers are paired with teacher layers
@@ -807,7 +1006,6 @@ def get_parameter_names(model, forbidden_layer_types, forbidden_module=None):
 
 
 def main():
-# def main(args):
     # 1. Parse input arguments
     # We keep distinct sets of args, for cleaner separation of model/data/training related args
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, DistillationTrainingArguments))
@@ -818,15 +1016,12 @@ def main():
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-        # model_args, data_args, training_args = parser.parse_args_into_dataclasses(args)
 
     # 2. Initialize the accelerator
     # We will let the accelerator handle device placement for us in this example
     # We simply have to specify the training precision and any trackers being used
     # We'll use the same dtype arguments as our JAX/Flax training script and convert
     # it to accelerate format
-    # The teacher model can safely be cast to the dtype of training since we don't
-    # update the params
     if training_args.dtype == "float16":
         mixed_precision = "fp16"
         teacher_dtype = torch.float16
@@ -846,8 +1041,12 @@ def main():
 
     accelerator.init_trackers(
         project_name=data_args.wandb_project,
-        # init_kwargs={"wandb": {"mode": "offline", "name": data_args.wandb_run_name}}
-        init_kwargs={"wandb": {"name": data_args.wandb_run_name}}
+        init_kwargs={
+            "wandb": {
+                "name": data_args.wandb_run_name,
+                # "dir": data_args.wandb_dir,
+            }
+        }
     )
 
     # 3. Set-up basic logging
@@ -890,14 +1089,14 @@ def main():
     # 5. Handle the repository creation
     if accelerator.is_main_process:
         if training_args.push_to_hub:
-            # Retrieve of infer repo_name
-            repo_name = training_args.hub_model_id
-            if repo_name is None:
-                repo_name = Path(training_args.output_dir).absolute().name
-            # Create repo and retrieve repo_id
-            repo_id = create_repo(repo_name, exist_ok=True, token=training_args.hub_token).repo_id
-            # Clone repo locally
-            repo = Repository(training_args.output_dir, clone_from=repo_id, token=training_args.hub_token)
+            if training_args.hub_model_id is None:
+                repo_name = get_full_repo_name(
+                    Path(training_args.output_dir).absolute().name,
+                    token=training_args.hub_token,
+                )
+            else:
+                repo_name = training_args.hub_model_id
+            create_repo(repo_name, exist_ok=True, token=training_args.hub_token)
 
             with open(os.path.join(training_args.output_dir, ".gitignore"), "w+") as gitignore:
                 if "wandb" not in gitignore:
@@ -918,6 +1117,7 @@ def main():
         #     data_args.train_dataset_config_name,
         #     splits=data_args.train_split_name,
         #     text_column_names=data_args.text_column_name,
+        #     use_pseudo_labels=data_args.use_pseudo_labels,
         #     streaming=data_args.streaming,
         #     dataset_samples=data_args.train_dataset_samples,
         #     seed=training_args.seed,
@@ -926,6 +1126,7 @@ def main():
         #     token=model_args.token,
         # )
 
+        # bh: load local merged dataset
         ext = data_args.train_file.rsplit(".", 1)[-1]
         raw_datasets["train"] = load_dataset(ext, data_files=data_args.train_file, split="train")
 
@@ -934,9 +1135,11 @@ def main():
     if training_args.do_eval:
         # dataset_names_dict = convert_dataset_str_to_list(
         #     data_args.eval_dataset_name if data_args.eval_dataset_name else data_args.train_dataset_name,
-        #     data_args.eval_dataset_config_name
-        #     if data_args.eval_dataset_config_name
-        #     else data_args.train_dataset_config_name,
+        #     (
+        #         data_args.eval_dataset_config_name
+        #         if data_args.eval_dataset_config_name
+        #         else data_args.train_dataset_config_name
+        #     ),
         #     splits=data_args.eval_split_name,
         #     text_column_names=data_args.eval_text_column_name,
         # )
@@ -981,6 +1184,7 @@ def main():
         #             set(raw_datasets[pretty_name].features.keys()) - {"audio", "text"}
         #         )
 
+        # bh: load local datasets
         validation_files = data_args.validation_file.split("+")
         all_eval_splits = []
         if len(validation_files) == 1:
@@ -1010,18 +1214,20 @@ def main():
         token=model_args.token,
     )
 
+    # bh: automatically deactivated if using gradient_checkpointing
+    # config.use_cache = False
+
     # SpecAugment for whisper models
-    # bh: SpecAugment parameters
-    if getattr(config, "model_type", None) == "whisper":
+    if getattr(config, "model_type", None) == "whisper" and model_args.apply_spec_augment:
         config.update(
             {
                 "apply_spec_augment": model_args.apply_spec_augment,
-                # "mask_time_prob": model_args.mask_time_prob,
-                # "mask_time_length": model_args.mask_time_length,
-                # "mask_time_min_masks": model_args.mask_time_min_masks,
-                # "mask_feature_prob": model_args.mask_feature_prob,
-                # "mask_feature_length": model_args.mask_feature_length,
-                # "mask_feature_min_masks": model_args.mask_feature_min_masks,
+                "mask_time_prob": model_args.mask_time_prob,
+                "mask_time_length": model_args.mask_time_length,
+                "mask_time_min_masks": model_args.mask_time_min_masks,
+                "mask_feature_prob": model_args.mask_feature_prob,
+                "mask_feature_length": model_args.mask_feature_length,
+                "mask_feature_min_masks": model_args.mask_feature_min_masks,
             }
         )
 
@@ -1044,13 +1250,16 @@ def main():
     timestamps = [AddedToken("<|%.2f|>" % (i * 0.02), lstrip=False, rstrip=False) for i in range(1500 + 1)]
     tokenizer.add_tokens(timestamps)
 
+    # The teacher model can safely be cast to the dtype of training since we don't
+    # update the params
     teacher_model = WhisperForConditionalGeneration.from_pretrained(
         model_args.teacher_model_name_or_path,
         cache_dir=model_args.cache_dir,
         token=model_args.token,
         low_cpu_mem_usage=True,
         torch_dtype=teacher_dtype,
-        use_cache=False,
+        attn_implementation=model_args.attn_implementation,
+        use_cache=False,  # bh: deactivate kv cache for teacher model to save memory
     )
 
     student_model = WhisperForConditionalGeneration.from_pretrained(
@@ -1061,6 +1270,7 @@ def main():
         subfolder=model_args.subfolder,
         token=model_args.token,
         low_cpu_mem_usage=True,
+        attn_implementation=model_args.attn_implementation,
     )
 
     if student_model.config.decoder_start_token_id is None or teacher_model.config.decoder_start_token_id is None:
@@ -1070,29 +1280,54 @@ def main():
             f"student and {teacher_model.config.decoder_start_token_id} for the teacher."
         )
 
-    share_hidden_states = training_args.freeze_encoder and student_model.config.d_model == teacher_model.config.d_model
-
     # enable gradient checkpointing if necessary
     if training_args.gradient_checkpointing:
         student_model.gradient_checkpointing_enable()
 
+    def set_trainable_parameters(module, requires_grad=False):
+        for param in module.parameters():
+            param.requires_grad = requires_grad
+        module._requires_grad = requires_grad
+
     # freeze student encoder if necessary
     if training_args.freeze_encoder:
-        student_model.freeze_encoder()
+        # student_model.freeze_encoder()
+        set_trainable_parameters(student_model.model.encoder, requires_grad=False)
         student_model.model.encoder.gradient_checkpointing = False
 
-    # if share_hidden_states:
-    # tie the weights for the student encoder if we're freezing it and it's the same as the teacher
-    #    student_model.model.encoder = teacher_model.model.encoder
+    if training_args.freeze_decoder:
+        set_trainable_parameters(student_model.model.decoder, requires_grad=False)
+        student_model.model.decoder.gradient_checkpointing = False
+        # un-freeze LM head parameters (and consequently word embeddings), frozen when frozing decoder since tied word embedding and LM head
+        set_trainable_parameters(student_model.proj_out, requires_grad=True)
+
+    if training_args.freeze_embed_positions:
+        # todo: need to test which option is better to get better perf on sequential long-form decoding
+        # set_trainable_parameters(student_model.model.decoder.embed_tokens, requires_grad=False)
+        set_trainable_parameters(student_model.model.decoder.embed_positions, requires_grad=False)
+        if student_model.model.decoder.gradient_checkpointing:
+            logger.info(
+                "Disabling gradient checkpointing in the decoder since it's incompatible with `freeze_embed_positions`."
+            )
+
+    logger.info(
+        f"Number of trainable parameters: {sum(p.numel() for p in student_model.parameters() if p.requires_grad):.3e}"
+    )
+
+    # todo: how does tie actually do
+    share_hidden_states = training_args.freeze_encoder and student_model.config.d_model == teacher_model.config.d_model
+    if share_hidden_states:
+        # tie the weights for the teacher encoder if we're freezing the student and it's the same as the teacher
+        teacher_model.model.encoder = student_model.model.encoder
 
     if hasattr(teacher_model.generation_config, "is_multilingual") and teacher_model.generation_config.is_multilingual:
         # We need to set the language and task ids for previously multilingual checkpoints
         is_multilingual = True
-        # todo: ?? processor.tokenizer
-        tokenizer.set_prefix_tokens(language=data_args.language, task=data_args.task, predict_timestamps=False)
+        # bh: towards multilingual training: don't specify language when saving tokenizer or evaluating checkpoints
+        # tokenizer.set_prefix_tokens(language=data_args.language, task=data_args.task, predict_timestamps=False)
         student_model.generation_config.update(
             **{
-                "language": data_args.language,
+                # "language": data_args.language,
                 "task": data_args.task,
             }
         )
@@ -1141,31 +1376,43 @@ def main():
 
     decoder_start_token_id = student_model.config.decoder_start_token_id  # <|startoftranscript|>
     decoder_prev_token_id = tokenizer.all_special_ids[-3]  # <|startofprev|>
-    decoder_eot_token_id = tokenizer.eos_token_id
-
-    language = data_args.language
-    task = data_args.task
+    prompt_cutoff_length = max_label_length // 2
 
     num_workers = data_args.preprocessing_num_workers
     dataloader_num_workers = training_args.dataloader_num_workers
+    prefetch_factor = training_args.dataloader_prefetch_factor
 
     metric = evaluate.load("wer")
     # normalizer = (
-    #     BasicTextNormalizer() if language is not None else EnglishTextNormalizer(tokenizer.english_spelling_normalizer)
+    #     BasicTextNormalizer()
+    #     if data_args.language is not None
+    #     else EnglishTextNormalizer(tokenizer.english_spelling_normalizer)
     # )
-    normalizer_ = FrenchTextNormalizer()
+    # french normalizer
+    # normalizer_ = FrenchTextNormalizer()
+    normalizer_ = (
+        EnglishTextNormalizer()
+        if data_args.language == "en"
+        else FrenchTextNormalizer()
+        if data_args.language == "fr"
+        else BasicTextNormalizer()
+    )
 
     def normalizer(s):
+        # remove timstamps
         # s = re.sub(r"<\|[0-9\.]+\|>", "", s)  # remove timstamps
         # s = re.sub(r"\<[^\>]*\>", "", s)  # remove timstamps
         s = tokenizer._filter_timestamp_ids(s)
-        s = normalizer_(
-            s, do_lowercase=True, do_ignore_words=False, symbols_to_keep="'", do_num2text=True
-        )  # w/o "-"
+
+        # normalize text
+        # w/o "-"
+        s = normalizer_(s, do_lowercase=True, do_ignore_words=False, symbols_to_keep="'", do_num2text=True)
 
         return s
 
     wer_threshold = data_args.wer_threshold
+    use_pseudo_labels = data_args.use_pseudo_labels
+    # train_text_column_name = "whisper_transcript" if use_pseudo_labels else "text"
 
     # 10.2: filter based on maximum number of training/evaluation samples
     if training_args.do_train and data_args.max_train_samples is not None:
@@ -1177,25 +1424,25 @@ def main():
 
     if training_args.do_eval and data_args.max_eval_samples is not None:
         for eval_split in all_eval_splits:
+            # raw_datasets[eval_split] = (
+            #     raw_datasets[eval_split].take(data_args.max_eval_samples)
+            #     if data_args.streaming
+            #     else raw_datasets[eval_split].select(range(data_args.max_eval_samples))
+            # )
+            num_samples = min(data_args.max_eval_samples, raw_datasets[eval_split].num_rows)
             raw_datasets[eval_split] = (
-                raw_datasets[eval_split].take(data_args.max_eval_samples)
+                raw_datasets[eval_split].take(num_samples)
                 if data_args.streaming
-                else raw_datasets[eval_split].select(range(data_args.max_eval_samples))
+                else raw_datasets[eval_split].select(range(num_samples))
             )
 
     # 10.3: filter training data based on WER threshold -> this is KEY to good distillation performance
     # def is_wer_in_range(ground_truth, whisper_transcript):
     #     norm_ground_truth = normalizer(ground_truth)
-    #     if (
-    #         isinstance(whisper_transcript, str)
-    #         and whisper_transcript.startswith("[")
-    #         and whisper_transcript.endswith("]")
-    #     ):
-    #         whisper_transcript = re.findall(r"\d+", whisper_transcript)
-    #         whisper_transcript = [int(token) for token in whisper_transcript]
-    #     if isinstance(whisper_transcript, list):
-    #         whisper_transcript = tokenizer.decode(whisper_transcript, skip_special_tokens=True)
-    #     if len(norm_ground_truth) > 0 and whisper_transcript is not None:
+    #     if whisper_transcript is not None and whisper_transcript.upper() == whisper_transcript:
+    #         # filter entirely upper-case transcriptions: these are erroneous generations from large-v3
+    #         return False
+    #     elif len(norm_ground_truth) > 0 and whisper_transcript is not None:
     #         norm_whisper_transcript = normalizer(whisper_transcript)
     #         wer = 100 * metric.compute(predictions=[norm_whisper_transcript], references=[norm_ground_truth])
     #         return wer < wer_threshold
@@ -1209,19 +1456,53 @@ def main():
     #     input_columns=["text", "whisper_transcript"],
     # )
 
+    # bh: wer already computed in previous script
     filter_by_wer_threshold = partial(
         raw_datasets["train"].filter,
-        function=lambda x: x < wer_threshold,
+        function=lambda x: x <= wer_threshold,
         input_columns=["wer"],
     )
 
+    # if wer_threshold is not None and use_pseudo_labels:
     if wer_threshold is not None:
-        raw_datasets["train"] = (
-            filter_by_wer_threshold(num_proc=num_workers, desc="filtering train dataset by wer")
-            if not data_args.streaming
-            else filter_by_wer_threshold()
+        with accelerator.main_process_first():
+            raw_datasets["train"] = (
+                filter_by_wer_threshold(num_proc=num_workers, desc="filtering train dataset by wer")
+                if not data_args.streaming
+                else filter_by_wer_threshold()
+            )
+
+    duration_column_name = data_args.duration_column_name
+    max_duration_in_seconds = data_args.max_duration_in_seconds
+    min_duration_in_seconds = data_args.min_duration_in_seconds
+
+    # filter by audio length
+    def is_audio_in_length_range(duration):
+        if max_duration_in_seconds is not None and max_duration_in_seconds < duration:
+            return False
+        if min_duration_in_seconds is not None and min_duration_in_seconds > duration:
+            return False
+        return True
+
+    if max_duration_in_seconds is not None or min_duration_in_seconds is not None:
+        with accelerator.main_process_first():
+            raw_datasets["train"] = raw_datasets["train"].filter(
+                is_audio_in_length_range,
+                input_columns=[duration_column_name],
+                num_proc=num_workers,
+                desc="filtering train dataset by audio length",
+            )
+
+    # filter by label length
+    # def is_labels_in_length_range(labels):
+    #     return 0 < len(labels) <= max_label_length
+
+    accelerator.print(raw_datasets)
+    for split in raw_datasets:
+        durations = np.asarray(raw_datasets[split][duration_column_name])
+        accelerator.print(
+            f"{split} duration: tot {durations.sum() / 3600:.2f}h, mean {durations.mean():.2f}s, min {durations.min():.2f}s, max {durations.max():.2f}s"
         )
-        accelerator.print(raw_datasets)
 
     # 10.4: pre-process training/evaluation datasets
     # def has_timestamp_tokens(input_str):
@@ -1237,7 +1518,6 @@ def main():
     #         1. Convert the audio arrays to log-mel spectrogram inputs
     #         2. Possibly filter the timestamp tokens from the token ids (depending on the timestamp probability)
     #         3. Possibly add prompt tokens if conditioning on previous text (depending on the conditioning probability)
-    #     TODO(SG): see whether we can 'pack' the audio inputs closer to 30 second chunks
     #     """
     #     # process audio input
     #     audio = [sample["array"] for sample in batch["audio"]]
@@ -1246,61 +1526,51 @@ def main():
     #     batch["input_length"] = [len(sample) for sample in audio]
 
     #     # process text targets - for training these are the Whisper-generated pseudo-labels
-    #     input_str_batched = batch["whisper_transcript"]
+    #     input_str_batched = batch[train_text_column_name]
+    #     condition_on_prev_batched = batch.get("condition_on_prev", len(input_str_batched) * [None])
 
     #     all_token_ids = []
     #     all_token_ids_unprompted = []
-    #     for input_str in input_str_batched:
-    #         if isinstance(input_str, list):
-    #             # pseudo-labelled transcriptions have been retained as token ids (`decode_token_ids=False`)
-    #             token_ids = input_str
-    #         elif input_str[0].startswith("[") and input_str[0].endswith("]"):
-    #             token_ids = re.findall(r"\d+", input_str)
-    #             token_ids = [int(token) for token in token_ids]
-    #         else:
-    #             token_ids = None
+    #     for prev_ids, input_str in zip(condition_on_prev_batched, input_str_batched):
+    #         token_ids = tokenizer(input_str, add_special_tokens=not use_pseudo_labels).input_ids
 
-    #         if token_ids is not None:
-    #             # remove the EOT tokens to get the 'true' token length
-    #             token_ids = [token for token in token_ids if token != decoder_eot_token_id]
-    #             token_ids = token_ids + [decoder_eot_token_id]
-    #             # check whether we have timestamps in the PLs and filter if required
-    #             has_timestamps = len(set(token_ids) & set(timestamp_ids)) > 0
-    #             if has_timestamps:
-    #                 # sample from binomial distribution to get probability of training on timestamps
-    #                 predict_timestamps = bool(np.random.binomial(1, timestamp_probability))
-    #                 if not predict_timestamps:
-    #                     # filter timestamps and insert the <|notimestamps|> task token
-    #                     token_ids = [token for token in token_ids if token < timestamp_begin]
-    #                     token_ids.insert(timestamp_position, timestamp_begin)
-    #         else:
-    #             # pseudo-labelled transcriptions have been decoded to text (`decode_token_ids=True`)
-    #             has_timestamps = has_timestamp_tokens(input_str)
-
-    #             if has_timestamps:
-    #                 predict_timestamps = bool(np.random.binomial(1, timestamp_probability))
-    #                 if not predict_timestamps:
-    #                     # filter timestamp token ids if not part of the prediction task
-    #                     input_str = tokenizer._filter_timestamp_ids(input_str)
-    #             else:
-    #                 predict_timestamps = False
-
-    #             tokenizer.set_prefix_tokens(language=language, task=task, predict_timestamps=predict_timestamps)
-    #             token_ids = tokenizer(input_str).input_ids
+    #         # check whether we have timestamps in the PLs and filter if required
+    #         has_timestamps = len(set(token_ids) & set(timestamp_ids)) > 0
+    #         if has_timestamps:
+    #             # sample from binomial distribution to get probability of training on timestamps
+    #             predict_timestamps = bool(np.random.binomial(1, timestamp_probability))
+    #             if not predict_timestamps:
+    #                 # filter timestamps and insert the <|notimestamps|> task token
+    #                 token_ids = [token for token in token_ids if token < timestamp_begin]
+    #                 token_ids.insert(timestamp_position, timestamp_begin)
 
     #         all_token_ids_unprompted.append(token_ids)
     #         # check whether to condition on previous text - we do this with probability condition_on_prev_probability
     #         condition_on_prev = bool(np.random.binomial(1, condition_on_prev_probability))
-    #         if condition_on_prev and len(all_token_ids_unprompted) > 1:
+    #         if not condition_on_prev:
+    #             prev_ids = None
+    #         elif "condition_on_prev" not in batch and len(all_token_ids_unprompted) > 1:
     #             # prompt ids are the penultimate token ids in the batch
-    #             prompt_ids = all_token_ids_unprompted[-2]
-    #             # strip timestamp tokens from prompt
-    #             prompt_ids = [token for token in prompt_ids if token < timestamp_begin]
-    #             if len(prompt_ids) > 0:
-    #                 # remove the standard task tokens and add the special <|startofprev|> token
-    #                 prompt_ids = [decoder_prev_token_id] + prompt_ids[timestamp_position:-1]
-    #             if len(prompt_ids + token_ids) < max_label_length:
-    #                 token_ids = prompt_ids + token_ids
+    #             prev_ids = all_token_ids_unprompted[-2]
+
+    #         if prev_ids is not None:
+    #             if has_timestamps and not predict_timestamps:
+    #                 # filter timestamp ids from prompt when not predicting timestamps
+    #                 prev_ids = [token for token in prev_ids if token < timestamp_begin]
+
+    #             # check that the length of the prompt does not exceed more than half the max label length (224)
+    #             if len(prev_ids) > prompt_cutoff_length:
+    #                 prev_ids = prev_ids[-prompt_cutoff_length + 1 :]
+    #                 prev_ids = [decoder_prev_token_id] + prev_ids
+
+    #             # and that the total length of the labels does not exceed the max label length (448)
+    #             if len(prev_ids + token_ids) > max_label_length:
+    #                 trim_length = len(prev_ids + token_ids) - max_label_length + 1
+    #                 prev_ids = prev_ids[trim_length:]
+    #                 prev_ids = [decoder_prev_token_id] + prev_ids
+
+    #             token_ids = prev_ids + token_ids
+
     #         all_token_ids.append(token_ids)
 
     #     batch["labels"] = all_token_ids
@@ -1328,53 +1598,79 @@ def main():
     #         function=prepare_train_dataset,
     #         remove_columns=raw_datasets_train_features,
     #         batched=True,
-    #         batch_size=max(training_args.per_device_train_batch_size // 4, 4),  # TODO(SG) make data prep bs configurable
+    #         batch_size=data_args.preprocessing_batch_size,
     #     )
-    #     vectorized_datasets["train"] = (
-    #         map_fn_train(num_proc=num_workers, desc="preprocess train dataset")
-    #         if not data_args.streaming
-    #         else map_fn_train()
-    #     )
+    #     with accelerator.main_process_first():
+    #         vectorized_datasets["train"] = (
+    #             map_fn_train(num_proc=num_workers, desc="preprocess train dataset")
+    #             if not data_args.streaming
+    #             else map_fn_train()
+    #         )
     # if training_args.do_eval:
     #     for eval_split in all_eval_splits:
     #         raw_datasets_eval_features = list(raw_datasets[eval_split].features.keys())
     #         map_fn_eval = partial(
     #             raw_datasets[eval_split].map, function=prepare_eval_dataset, remove_columns=raw_datasets_eval_features
     #         )
-    #         if accelerator.is_main_process:
+    #         with accelerator.main_process_first():
     #             vectorized_datasets[eval_split] = (
     #                 map_fn_eval(num_proc=num_workers, desc="preprocess eval dataset")
     #                 if not data_args.streaming
     #                 else map_fn_eval()
     #             )
 
-    # 10.5: Filter training data with inputs longer than `max_input_length`
+    # # 10.5: Filter training data with inputs longer than `max_input_length`
     # def is_audio_in_length_range(length):
     #     return min_input_length < length < max_input_length
 
     # filter_by_audio_fn = partial(
     #     vectorized_datasets.filter, function=is_audio_in_length_range, input_columns=["input_length"]
     # )
-    # vectorized_datasets = (
-    #     filter_by_audio_fn(num_proc=num_workers, desc="filtering train dataset by audio length")
-    #     if not data_args.streaming
-    #     else filter_by_audio_fn()
-    # )
+    # with accelerator.main_process_first():
+    #     vectorized_datasets = (
+    #         filter_by_audio_fn(num_proc=num_workers, desc="filtering train dataset by audio length")
+    #         if not data_args.streaming
+    #         else filter_by_audio_fn()
+    #     )
 
-    # 10.6: Filter training data with labels longer than `max_label_length`
+    # # 10.6: Filter training data with labels longer than `max_label_length`
     # def is_labels_in_length_range(labels):
     #     return 0 < len(labels) <= max_label_length
 
     # filter_by_labels_fn = partial(
     #     vectorized_datasets.filter, function=is_labels_in_length_range, input_columns=["labels"]
     # )
-    # vectorized_datasets = (
-    #     filter_by_labels_fn(num_proc=num_workers, desc="filtering train dataset")
-    #     if not data_args.streaming
-    #     else filter_by_labels_fn()
-    # )
+    # with accelerator.main_process_first():
+    #     vectorized_datasets = (
+    #         filter_by_labels_fn(num_proc=num_workers, desc="filtering train dataset")
+    #         if not data_args.streaming
+    #         else filter_by_labels_fn()
+    #     )
 
-    vectorized_datasets = raw_datasets
+    # bh: all the preprocessings have been done in another script
+    # vectorized_datasets = raw_datasets
+    vectorized_datasets = {
+        split: SpeechDataset(
+            raw_datasets[split],
+            processor=processor,
+            audio_column_name=data_args.audio_column_name,
+            text_column_name=data_args.text_column_name if split == "train" else data_args.eval_text_column_name,
+            duration_column_name=duration_column_name,
+            prev_text_column_name=data_args.prev_text_column_name,
+            condition_on_prev_column_name=data_args.condition_on_prev_column_name,
+            language_column_name=data_args.language_column_name,
+            # language=data_args.language,
+            task=data_args.task,
+            timestamp_probability=timestamp_probability,
+            condition_on_prev_probability=condition_on_prev_probability,
+            is_train=split == "train",
+            forward_attention_mask=config.apply_spec_augment if split == "train" else False,
+            prompt_cutoff_length=prompt_cutoff_length,
+            max_target_length=max_label_length,
+            sort_by_duration=data_args.sort_by_duration,
+        )
+        for split in raw_datasets
+    }
 
     # Pre-processing complete!
     # For large datasets it is advised to run the preprocessing on a
@@ -1399,6 +1695,7 @@ def main():
         for idx in range(len(labels)):
             labels[idx][labels[idx] == -100] = tokenizer.pad_token_id
 
+        # don't return timestamps when computing wer_ortho
         pred_str = tokenizer.batch_decode(preds, skip_special_tokens=True, decode_with_timestamps=return_timestamps)
         # we do not want to group tokens when computing the metrics
         label_str = tokenizer.batch_decode(labels, skip_special_tokens=True)
@@ -1432,9 +1729,13 @@ def main():
     elif training_args.max_steps > 0:
         logger.info("max_steps is given, it will override any value given in num_train_epochs")
         total_train_steps = int(training_args.max_steps)
-        # Setting a very large number of epochs so we go as many times as necessary over the iterator.
-        num_epochs = sys.maxsize
-        steps_per_epoch = total_train_steps
+        if not data_args.streaming:
+            steps_per_epoch = len(vectorized_datasets["train"]) // (train_batch_size * gradient_accumulation_steps)
+            num_epochs = int(np.ceil(total_train_steps / steps_per_epoch))
+        else:
+            # Setting a very large number of epochs so we go as many times as necessary over the iterator.
+            num_epochs = sys.maxsize
+            steps_per_epoch = total_train_steps
     else:
         raise ValueError("max_steps must be specified when training with a streaming (iterable) dataset")
 
@@ -1447,10 +1748,20 @@ def main():
         eval_steps = training_args.eval_steps
 
     # 13. Define optimizer, LR scheduler, collator
+
+    forbidden_module = [
+        module
+        for module, flag in [
+            (student_model.model.encoder, training_args.freeze_encoder),
+            (student_model.model.decoder, training_args.freeze_decoder)
+        ]
+        if flag
+    ] or None
+
     decay_parameters = get_parameter_names(
         student_model,
         [nn.LayerNorm],
-        forbidden_module=[student_model.model.encoder] if training_args.freeze_encoder else None,
+        forbidden_module=forbidden_module,
     )
     decay_parameters = [name for name in decay_parameters if "bias" not in name]
     optimizer_grouped_parameters = [
@@ -1470,11 +1781,15 @@ def main():
         eps=training_args.adam_epsilon,
     )
 
+    # warmup ratio
+    warmup_steps = training_args.warmup_steps if training_args.warmup_steps > 0 else math.ceil(total_train_steps * training_args.warmup_ratio)
+
     # LR scheduler gets stepped by `num_processes` each time -> account for this in warmup / total steps
     lr_scheduler = get_scheduler(
         name=training_args.lr_scheduler_type,
         optimizer=optimizer,
-        num_warmup_steps=training_args.warmup_steps * accelerator.num_processes,
+        # num_warmup_steps=training_args.warmup_steps * accelerator.num_processes,
+        num_warmup_steps=warmup_steps * accelerator.num_processes,
         num_training_steps=total_train_steps * accelerator.num_processes,
     )
 
@@ -1482,37 +1797,24 @@ def main():
         processor=processor,
         decoder_start_token_id=decoder_start_token_id,
         decoder_prev_token_id=decoder_prev_token_id,
+        forward_attention_mask=config.apply_spec_augment,
         input_padding="longest",
         target_padding="longest",
         # target_padding="max_length",
-        max_target_length=max_label_length,
-        audio_column_name=data_args.audio_column_name,
-        text_column_name=data_args.text_column_name,
-        timestamp_probability=timestamp_probability,
-        language=language,
-        task=task,
-        is_train=True,
-        forward_attention_mask=config.apply_spec_augment,
-        condition_on_prev_probability=condition_on_prev_probability,
-        timestamp_begin=timestamp_begin,
-        timestamp_position=timestamp_position,
+        # max_target_length=max_label_length,
+        pad_to_multiple_of=data_args.pad_to_multiple_of,
     )
 
     eval_data_collator = DataCollatorSpeechSeq2SeqWithPadding(
         processor=processor,
         decoder_start_token_id=decoder_start_token_id,
         decoder_prev_token_id=decoder_prev_token_id,
+        forward_attention_mask=False,
         input_padding="longest",
         target_padding="longest",
         # target_padding="max_length",
         # max_target_length=max_label_length,
-        audio_column_name=data_args.audio_column_name,
-        text_column_name=data_args.eval_text_column_name,
-        timestamp_probability=timestamp_probability,
-        language=language,
-        task=task,
-        is_train=False,
-        forward_attention_mask=False,
+        pad_to_multiple_of=data_args.pad_to_multiple_of,
     )
 
     # 14. Define generation arguments - we need to do this before we wrap the models in DDP
@@ -1528,11 +1830,11 @@ def main():
         "num_beams": num_beams,
         "return_timestamps": return_timestamps,
     }
-    if hasattr(teacher_model.generation_config, "is_multilingual") and teacher_model.generation_config.is_multilingual:
+    if is_multilingual:
         # forcing the language and task tokens helps multilingual models in their generations
         gen_kwargs.update(
             {
-                "language": data_args.language,
+                # "language": data_args.language,
                 "task": data_args.task,
             }
         )
@@ -1566,7 +1868,7 @@ def main():
             if share_hidden_states:
                 # if the student and teacher share the same frozen encoder then we don't have to recompute the
                 # encoder hidden-states for the teacher model, we can just re-use from the student
-                encoder_outputs = BaseModelOutput(student_outputs.encoder_last_hidden_state)
+                encoder_outputs = BaseModelOutput(student_outputs.encoder_last_hidden_state.to(dtype=teacher_dtype))
                 teacher_outputs = teacher_model(encoder_outputs=encoder_outputs, labels=batch["labels"])
             else:
                 # do the full forward pass for the teacher model (encoder + decoder)
@@ -1594,7 +1896,7 @@ def main():
         with torch.no_grad():
             student_outputs = student_model(**batch)
             if share_hidden_states:
-                encoder_outputs = BaseModelOutput(student_outputs.encoder_last_hidden_state)
+                encoder_outputs = BaseModelOutput(student_outputs.encoder_last_hidden_state.to(dtype=teacher_dtype))
                 teacher_outputs = teacher_model(encoder_outputs=encoder_outputs, labels=batch["labels"])
             else:
                 teacher_outputs = teacher_model(**batch)
@@ -1618,13 +1920,20 @@ def main():
         # generate_fn = student_model.module.generate if accelerator.num_processes > 1 else student_model.generate
         # generated_ids = generate_fn(batch["input_features"], **gen_kwargs)
         # generated_ids = generate_fn(batch["input_features"].to(dtype=torch_dtype), **gen_kwargs)
+        # output_ids = accelerator.unwrap_model(student_model).generate(batch["input_features"], **gen_kwargs)
+        # output_ids = accelerator.pad_across_processes(output_ids, dim=1, pad_index=tokenizer.pad_token_id)
+        # return output_ids
         generated_ids = accelerator.unwrap_model(student_model).generate(batch["input_features"], **gen_kwargs)
         generated_ids, labels = accelerator.pad_across_processes((generated_ids, batch["labels"]), dim=1, pad_index=tokenizer.pad_token_id)
+        # generation hangs w/ multi gpus if put gather_for_metrics outside
+        # todo: why
         generated_ids, labels = accelerator.gather_for_metrics((generated_ids, labels))
         return generated_ids, labels
 
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {total_train_steps * train_batch_size * gradient_accumulation_steps}")
+    if not data_args.streaming:
+        logger.info(f"  Num epochs = {num_epochs}")
     logger.info("  Instantaneous batch size per device =" f" {training_args.per_device_train_batch_size}")
     logger.info("  Gradient accumulation steps =" f" {gradient_accumulation_steps}")
     logger.info(
@@ -1684,6 +1993,7 @@ def main():
             collate_fn=data_collator,
             batch_size=per_device_train_batch_size,
             num_workers=dataloader_num_workers,
+            prefetch_factor=prefetch_factor,
             pin_memory=training_args.dataloader_pin_memory,
         )
         train_dataloader = accelerator.prepare(train_dataloader)
@@ -1730,18 +2040,21 @@ def main():
                 if (cur_step % training_args.save_steps == 0) or cur_step == total_train_steps:
                     intermediate_dir = os.path.join(training_args.output_dir, f"checkpoint-{cur_step}-epoch-{epoch}")
                     accelerator.save_state(output_dir=intermediate_dir)
+                    # feature_extractor.save_pretrained(intermediate_dir)
+                    # tokenizer.save_pretrained(intermediate_dir)
+                    # config.save_pretrained(intermediate_dir)
+                    # student_model.generation_config.save_pretrained(intermediate_dir)
+
                     accelerator.wait_for_everyone()
                     if accelerator.is_main_process:
                         rotate_checkpoints(training_args.save_total_limit, output_dir=training_args.output_dir)
 
-                        if cur_step == total_train_steps:
-                            student_model = accelerator.unwrap_model(student_model)
-                            student_model.save_pretrained(training_args.output_dir)
-
                         if training_args.push_to_hub:
-                            repo.push_to_hub(
+                            upload_folder(
+                                folder_path=training_args.output_dir,
+                                repo_id=repo_name,
+                                repo_type="model",
                                 commit_message=f"Saving train state of step {cur_step}",
-                                blocking=False,
                             )
 
                 if training_args.do_eval and (cur_step % eval_steps == 0 or cur_step == total_train_steps):
@@ -1760,6 +2073,7 @@ def main():
                             batch_size=per_device_eval_batch_size,
                             drop_last=False,
                             num_workers=dataloader_num_workers,
+                            prefetch_factor=prefetch_factor,
                             pin_memory=training_args.dataloader_pin_memory,
                         )
                         validation_dataloader = accelerator.prepare(validation_dataloader)
@@ -1788,11 +2102,8 @@ def main():
 
                         eval_time = time.time() - eval_start
                         # normalize eval metrics
-                        # eval_metrics = {
-                        #     key: torch.mean(torch.stack([d[key] for d in eval_metrics])) for key in eval_metrics[0]
-                        # }
                         eval_metrics = {
-                            key: torch.mean(torch.concat([d[key] for d in eval_metrics])) for key in eval_metrics[0]
+                            key: torch.mean(torch.stack([d[key] for d in eval_metrics])) for key in eval_metrics[0]
                         }
 
                         # compute WER metric
@@ -1833,6 +2144,19 @@ def main():
 
                 # break condition
                 if cur_step == total_train_steps:
+
+                    # un-wrap student model for save
+                    student_model = accelerator.unwrap_model(student_model)
+                    student_model.save_pretrained(training_args.output_dir)
+
+                    if training_args.push_to_hub:
+                        upload_folder(
+                            folder_path=training_args.output_dir,
+                            repo_id=repo_name,
+                            repo_type="model",
+                            commit_message=f"Saving final weights of step {cur_step}",
+                        )
+
                     continue_training = False
                     break
 
