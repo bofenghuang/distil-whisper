@@ -1,7 +1,7 @@
 #!/bin/bash
 # Copyright 2023  Bofeng Huang
 
-#SBATCH --job-name=pseudo-labelling-post
+#SBATCH --job-name=postprocessing
 #SBATCH --output=logs/%x/%j.out      # output file (%j = job ID)
 #SBATCH --error=logs/%x/%j.err       # error file (%j = job ID)
 #SBATCH --nodes=1
@@ -46,10 +46,14 @@ export HF_EVALUATE_OFFLINE="1"
 # CPUs
 num_workers=80
 
-input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/it/train/train_mozilla-foundation_common_voice_17_0_manifest_whisper_large_v3.json"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/it/train/train_mozilla-foundation_common_voice_17_0_manifest_whisper_large_v3.json"
 
 # take arg
-# input_file=$1
+input_file=$1
+
+# tmp: merge splitted infered files
+./scripts/merge_files.sh $input_file
+input_file="${input_file%.*}_whisper_large_v3.json"
 
 # normalize (timestamps)
 python scripts/norm_whisper_transcript.py \
@@ -67,11 +71,12 @@ python scripts/compute_wer.py \
 python scripts/filter_whisper_transcript.py \
     --input_file_path "${input_file%.*}_norm_wer.json" \
     --output_file_path "${input_file%.*}_norm_wer_filt.json" \
-    --wer_threshold 10 \
+    --wer_threshold 20 \
     --num_workers $num_workers
 
 input_file="${input_file%.*}_norm_wer_filt.json"
 output_file="${input_file/\/train\//\/train_concatenated\/}"
+# output_file="${input_file/\/train\//\/train_concatenated_20\/}"
 
 # concat
 python scripts/concat_asr_examples.py \

@@ -73,9 +73,10 @@ def main(
     is_mls = "multilingual_librispeech" in input_file_path
     is_voxpopuli = "voxpopuli" in input_file_path
     is_yodas = "yodas" in input_file_path
+    is_mtedx = "multilingual-tedx" in input_file_path
 
     id_column_name = (
-        "audio_filepath" if is_mcv else "id" if is_mls else "audio_id" if is_voxpopuli else "utt_id" if is_yodas else None
+        "audio_filepath" if is_mcv else "id" if (is_mls or is_mtedx) else "audio_id" if is_voxpopuli else "utt_id" if is_yodas else None
     )
     speaker_column_name = "speaker_id"
     audio_column_name = "audio_filepath"
@@ -144,6 +145,7 @@ def main(
         def _concat_and_save_wav_files(input_files, speaker_name):
             output_dir = input_files[0]
             output_dir = output_dir.replace("/train/", "/train_concatenated/")
+            # output_dir = output_dir.replace("/train/", "/train_concatenated_20/")
             output_dir = output_dir.rsplit("/", 1)[0]
             output_file_name = md5("+".join([x.rsplit("/", 1)[1].rsplit(".", 1)[0] for x in input_files]))
             output_file_name = speaker_name + "-" + output_file_name + ".wav"

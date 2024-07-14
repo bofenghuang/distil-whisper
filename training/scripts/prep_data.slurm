@@ -1,7 +1,7 @@
 #!/bin/bash
 # Copyright 2023  Bofeng Huang
 
-#SBATCH --job-name=pseudo-labelling-post
+#SBATCH --job-name=postprocessing
 #SBATCH --output=logs/%x/%j.out      # output file (%j = job ID)
 #SBATCH --error=logs/%x/%j.err       # error file (%j = job ID)
 #SBATCH --nodes=1
@@ -54,6 +54,10 @@ num_workers=80
 
 # take arg
 input_file=$1
+
+# tmp: merge splitted infered files
+./scripts/merge_files.sh $input_file
+input_file="${input_file%.*}_whisper_large_v3.json"
 
 # normalize (timestamps)
 python scripts/norm_whisper_transcript.py \

@@ -69,34 +69,28 @@ input_file=$1
 
 # tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/[ |=/-]/_/g")"
 tmp_model_id="$(echo "${model_name_or_path##*/}" | sed -e "s/[ |=/-]/_/g")"
-# output_file="${input_file%.*}_${tmp_model_id}.json"
-output_file="${input_file%.*}_${tmp_model_id}_merged.json"
+output_file="${input_file%.*}_${tmp_model_id}.json"
 final_output_file="${output_file%.*}_wer.json"
 
-# $CMD run_pseudo_labelling_b.py \
-#     --model_name_or_path "$model_name_or_path" \
-#     --input_data_file "$input_file" \
-#     --output_dir "$outdir" \
-#     --output_data_file "$output_file" \
-#     --audio_column_name "audio_filepath" \
-#     --id_column_name "id" \
-#     --duration_column_name "duration" \
-#     --sort_by_duration True \
-#     --preprocessing_num_workers 64 \
-#     --pad_to_multiple_of 64 \
-#     --dataloader_num_workers 8 \
-#     --dtype "float16" \
-#     --attn_implementation "sdpa" \
-#     --per_device_eval_batch_size 64 \
-#     --language "it" \
-#     --task "transcribe" \
-#     --return_timestamps \
-#     --max_label_length 448 \
-#     --generation_num_beams 1
-
-python ./scripts/compute_wer.py \
-    --input_data_file "$output_file" \
-    --output_data_file "$final_output_file" \
-    --num_workers 320
+$CMD run_pseudo_labelling_b.py \
+    --model_name_or_path "$model_name_or_path" \
+    --input_data_file "$input_file" \
+    --output_dir "$outdir" \
+    --output_data_file "$output_file" \
+    --audio_column_name "audio_filepath" \
+    --id_column_name "id" \
+    --duration_column_name "duration" \
+    --sort_by_duration True \
+    --preprocessing_num_workers 32 \
+    --pad_to_multiple_of 64 \
+    --dataloader_num_workers 8 \
+    --dtype "float16" \
+    --attn_implementation "sdpa" \
+    --per_device_eval_batch_size 64 \
+    --language "it" \
+    --task "transcribe" \
+    --return_timestamps \
+    --max_label_length 448 \
+    --generation_num_beams 1
 
 echo "END TIME: $(date)"

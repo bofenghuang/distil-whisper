@@ -68,7 +68,25 @@ model_name_or_path="/gpfsdswork/projects/rech/cjc/commun/models/whisper/whisper-
 
 # input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it000/train_concatenated/splitted_files/train_espnet_yodas_manifest_0${SLURM_ARRAY_TASK_ID}.json"
 # input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it100/train_concatenated/splitted_files/train_espnet_yodas_manifest_0${SLURM_ARRAY_TASK_ID}.json"
-input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it101/train_concatenated/splitted_files/train_espnet_yodas_manifest_0${SLURM_ARRAY_TASK_ID}.json"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yodas/it101/train_concatenated/splitted_files/train_espnet_yodas_manifest_0${SLURM_ARRAY_TASK_ID}.json"
+
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/de/train/splitted_files/train_mozilla-foundation_common_voice_17_0_manifest"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/facebook/multilingual_librispeech/portuguese/train_concatenated/splitted_files/train_facebook_multilingual_librispeech_manifest_0${SLURM_ARRAY_TASK_ID}.json"
+
+# take arg
+input_file=$1
+
+# tmp: get tmp files
+tmp_dir=${input_file%/*}/splitted_files
+filename=${input_file##*/}
+filename=${filename%.*}
+# append SLURM_ARRAY_TASK_ID
+input_file="${tmp_dir}/${filename}_0${SLURM_ARRAY_TASK_ID}.json"
+
+# infer args
+# lang="it"
+lang="pt"
+# lang="de"
 
 # tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/-/\_/g" -e "s/[ |=/]/-/g")"
 # outdir="./outputs/data/$tmp_model_id"
@@ -76,7 +94,6 @@ input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/espnet/yod
 # tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/[ |=/-]/_/g")"
 tmp_model_id="$(echo "${model_name_or_path##*/}" | sed -e "s/[ |=/-]/_/g")"
 output_file="${input_file%.*}_${tmp_model_id}.json"
-final_output_file="${output_file%.*}_wer.json"
 
 $CMD run_pseudo_labelling_b.py \
     --model_name_or_path "$model_name_or_path" \
@@ -93,15 +110,10 @@ $CMD run_pseudo_labelling_b.py \
     --dtype "float16" \
     --attn_implementation "sdpa" \
     --per_device_eval_batch_size 64 \
-    --language "it" \
+    --language "$lang" \
     --task "transcribe" \
     --return_timestamps \
     --max_label_length 448 \
     --generation_num_beams 1
-
-# python ./scripts/compute_wer.py \
-#     --input_data_file "$output_file" \
-#     --output_data_file "$final_output_file" \
-#     --num_workers 40
 
 echo "END TIME: $(date)"
