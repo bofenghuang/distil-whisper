@@ -15,10 +15,12 @@ sys.path.append(parent_dir)
 import json
 import re
 
-import evaluate
+# import evaluate
 import fire
 from datasets import load_dataset
 from tqdm import tqdm
+
+import jiwer
 
 # from text_normalization.normalize_french import FrenchTextNormalizer
 from normalizers import BasicTextNormalizer, EnglishTextNormalizer, FrenchTextNormalizer
@@ -76,7 +78,8 @@ def main(
     dataset = load_dataset(ext, data_files=input_file_path, split="train")
     print(dataset)
 
-    metric = evaluate.load("wer")
+    # metric = evaluate.load("wer")
+    # metric = evaluate.load("wer", keep_in_memory=True)
 
     def process_function(example):
         # normalize everything and re-compute the WER
@@ -92,11 +95,17 @@ def main(
             # example["wer_ortho"] = 100 * metric.compute(
             #     predictions=[example["whisper_transcript"]], references=[example[text_column_name]]
             # )
-            example["wer_ortho"] = 100 * metric.compute(
-                predictions=[example["whisper_transcript_wo_timestamp"]], references=[example[text_column_name]]
+            # example["wer_ortho"] = 100 * metric.compute(
+            #     predictions=[example["whisper_transcript_wo_timestamp"]], references=[example[text_column_name]]
+            # )
+            # example["wer"] = 100 * metric.compute(
+            #     predictions=[example["whisper_transcript_norm"]], references=[example[f"{text_column_name}_norm"]]
+            # )
+            example["wer_ortho"] = 100 * jiwer.wer(
+                reference=example[text_column_name], hypothesis=example["whisper_transcript_wo_timestamp"]
             )
-            example["wer"] = 100 * metric.compute(
-                predictions=[example["whisper_transcript_norm"]], references=[example[f"{text_column_name}_norm"]]
+            example["wer"] = 100 * jiwer.wer(
+                reference=example[f"{text_column_name}_norm"], hypothesis=example["whisper_transcript_norm"]
             )
 
         return example
@@ -119,8 +128,10 @@ def main(
     print(dataset)
 
     # wer_ortho = 100 * metric.compute(predictions=dataset["whisper_transcript"], references=dataset[text_column_name])
-    wer_ortho = 100 * metric.compute(predictions=dataset["whisper_transcript_wo_timestamp"], references=dataset[text_column_name])
-    wer = 100 * metric.compute(predictions=dataset["whisper_transcript_norm"], references=dataset[f"{text_column_name}_norm"])
+    # wer_ortho = 100 * metric.compute(predictions=dataset["whisper_transcript_wo_timestamp"], references=dataset[text_column_name])
+    # wer = 100 * metric.compute(predictions=dataset["whisper_transcript_norm"], references=dataset[f"{text_column_name}_norm"])
+    wer_ortho = 100 * jiwer.wer(reference=dataset[text_column_name], hypothesis=dataset["whisper_transcript_wo_timestamp"])
+    wer = 100 * jiwer.wer(reference=dataset[f"{text_column_name}_norm"], hypothesis=dataset["whisper_transcript_norm"])
     print(f"WER: {wer_ortho:.4f}%, Norm WER: {wer:.4f}%")
 
     # remove tmp col
