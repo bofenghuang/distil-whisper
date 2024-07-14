@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import datasets
-import evaluate
+# import evaluate
 import numpy as np
 import torch
 import torch.nn as nn
@@ -65,10 +65,13 @@ from transformers.modeling_outputs import BaseModelOutput
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
+import jiwer
 import math
 import soundfile as sf
 # from text_normalization.normalize_french import FrenchTextNormalizer
 from normalizers import BasicTextNormalizer, EnglishTextNormalizer, FrenchTextNormalizer
+from utils.augment_audio import SpeechAugmentator
+
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.34.0.dev0")
@@ -151,11 +154,13 @@ class ModelArguments:
         },
     )
     mask_time_prob: float = field(default=0.05, metadata={"help": ""})
-    mask_time_length: float = field(default=10, metadata={"help": ""})
-    mask_time_min_masks: float = field(default=2, metadata={"help": ""})
+    mask_time_length: int = field(default=10, metadata={"help": ""})
+    mask_time_min_masks: int = field(default=2, metadata={"help": ""})
     mask_feature_prob: float = field(default=0.0, metadata={"help": ""})
-    mask_feature_length: float = field(default=10, metadata={"help": ""})
-    mask_feature_min_masks: float = field(default=0, metadata={"help": ""})
+    mask_feature_length: int = field(default=10, metadata={"help": ""})
+    mask_feature_min_masks: int = field(default=0, metadata={"help": ""})
+    dropout: Optional[float] = field(default=None, metadata={"help": "The dropout probability for embeddings+position and each self-attn/cross-attn/mlp."})
+    attention_dropout: Optional[float] = field(default=None, metadata={"help": "The dropout ratio for the attention probabilities."})
 
     def __post_init__(self):
         if self.attn_implementation not in [None, "eager", "sdpa", "flash_attention_2"]:
@@ -380,6 +385,13 @@ class DataTrainingArguments:
             "This argument should be set for multilingual distillation only. For English speech recognition, it should be left as `None`."
         },
     )
+    apply_audio_augmentation: bool = field(
+        default=False, metadata={"help": "Whether or not augment audio on the fly."}
+    )
+    background_noise_dir: str = field(default=None, metadata={"help": "Path to folder with sound files."})
+    audio_augmentation_prob: float = field(
+        default=0.05, metadata={"help": "Probability for applying one of audio augmentations."}
+    )
     wandb_project: str = field(
         default="distil-whisper",
         metadata={"help": "The name of the wandb project."},
@@ -478,7 +490,7 @@ class SpeechDataset(Dataset):
         prompt_cutoff_length: int,
         max_target_length: int,
         sort_by_duration: bool = False,
-        # augmentator: Any,
+        augmentator: Any = None,
     ):
         self.processor = processor
         self.audio_column_name = audio_column_name
@@ -502,6 +514,8 @@ class SpeechDataset(Dataset):
         self.model_input_name = processor.model_input_names[0]
         self.decoder_prev_token_id = processor.tokenizer.all_special_ids[-3]  # <|startofprev|>
         self.timestamp_begin = processor.tokenizer.all_special_ids[-1]  # 50364 (<|notimestamps|>), where 50365 (<|0.00|>)
+
+        self.augmentator = augmentator
 
         self.dataset = self.preprocess(dataset)
         # print(f"Loaded {len(self.dataset)} examples")
@@ -528,11 +542,11 @@ class SpeechDataset(Dataset):
         )
         waveform = waveform[:, 0]
 
-        # online audio augmentation
-        # if self.augmentator is not None:
-        #     # don't know why here is a list but not np array
-        #     # waveform = np.array(waveform, dtype=np.float32)
-        #     waveform = self.augmentator(waveform, sample_rate=sample_rate)
+        # online speech augmentation
+        if self.augmentator is not None:
+            # don't know why here is a list but not np array
+            # waveform = np.array(waveform, dtype=np.float32)
+            waveform = self.augmentator(waveform, sample_rate=sample_rate)
 
         # compute log-Mel input features from input audio array
         # features are padded to (128, 3000)
@@ -594,8 +608,12 @@ class SpeechDataset(Dataset):
                         prompt_ids = prompt_ids[-self.prompt_cutoff_length + 1:]
                     # and that the total length of the labels does not exceed the max label length (448)
                     if len(prompt_ids + token_ids) + 1 > self.max_target_length:
-                        trim_length = len(prompt_ids + token_ids) + 1 - self.max_target_length
-                        prompt_ids = prompt_ids[trim_length:]
+                        # trim_length = len(prompt_ids + token_ids) + 1 - self.max_target_length
+                        # prompt_ids = prompt_ids[trim_length:]
+                        # say 1 + 3 + 3 > 6
+                        # 1 + 2 + 3
+                        trim_length = self.max_target_length - 1 - len(token_ids)
+                        prompt_ids = prompt_ids[-trim_length:]
                     # add the special <|startofprev|> token
                     prompt_ids = [self.decoder_prev_token_id] + prompt_ids
                     # prompt_ids = [self.decoder_prev_token_id] + prompt_ids[self.timestamp_position: -1]
@@ -1126,9 +1144,11 @@ def main():
         #     token=model_args.token,
         # )
 
-        # bh: load local merged dataset
+        # bh: load local dataset/datasets
         ext = data_args.train_file.rsplit(".", 1)[-1]
-        raw_datasets["train"] = load_dataset(ext, data_files=data_args.train_file, split="train")
+        train_files = data_args.train_file.split("+")
+        train_files = train_files if len(train_files) > 1 else train_files[0]
+        raw_datasets["train"] = load_dataset(ext, data_files=train_files, split="train")
 
         # raw_datasets_train_features = list(raw_datasets["train"].features.keys())
 
@@ -1216,6 +1236,12 @@ def main():
 
     # bh: automatically deactivated if using gradient_checkpointing
     # config.use_cache = False
+
+    if model_args.dropout is not None:
+        config.dropout = model_args.dropout
+
+    if model_args.attention_dropout is not None:
+        config.attention_dropout = model_args.attention_dropout
 
     # SpecAugment for whisper models
     if getattr(config, "model_type", None) == "whisper" and model_args.apply_spec_augment:
@@ -1382,7 +1408,11 @@ def main():
     dataloader_num_workers = training_args.dataloader_num_workers
     prefetch_factor = training_args.dataloader_prefetch_factor
 
-    metric = evaluate.load("wer")
+    # metric = evaluate.load("wer")
+    # solve multi run racing problem
+    # "No such file or directory: */huggingface/metrics/wer/default/default_experiment-1-0.arrow"
+    # https://github.com/huggingface/evaluate/issues/382
+    # metric = evaluate.load("wer", keep_in_memory=True)
     # normalizer = (
     #     BasicTextNormalizer()
     #     if data_args.language is not None
@@ -1494,8 +1524,20 @@ def main():
             )
 
     # filter by label length
-    # def is_labels_in_length_range(labels):
-    #     return 0 < len(labels) <= max_label_length
+    def is_labels_in_length_range(s):
+        input_length = len(processor.tokenizer(s).input_ids)
+        # default tokenizer only prepend <|startoftranscript|> and <|notimestamps|>, add space for lang and task token
+        input_length += 2
+        return 0 < input_length <= max_label_length
+
+    if max_label_length is not None:
+        with accelerator.main_process_first():
+            raw_datasets["train"] = raw_datasets["train"].filter(
+                is_labels_in_length_range,
+                input_columns=[data_args.text_column_name],
+                num_proc=num_workers,
+                desc="filtering train dataset by label length",
+            )
 
     accelerator.print(raw_datasets)
     for split in raw_datasets:
@@ -1647,6 +1689,13 @@ def main():
     #         else filter_by_labels_fn()
     #     )
 
+    # init speech augmentation utils
+    augmentator = None
+    if data_args.apply_audio_augmentation:
+        augmentator = SpeechAugmentator(
+            background_noise_dir=data_args.background_noise_dir, prob=data_args.audio_augmentation_prob
+        )
+
     # bh: all the preprocessings have been done in another script
     # vectorized_datasets = raw_datasets
     vectorized_datasets = {
@@ -1668,6 +1717,7 @@ def main():
             prompt_cutoff_length=prompt_cutoff_length,
             max_target_length=max_label_length,
             sort_by_duration=data_args.sort_by_duration,
+            augmentator=augmentator if split == "train" else None,
         )
         for split in raw_datasets
     }
@@ -1711,8 +1761,11 @@ def main():
         norm_pred_str = [norm_pred_str[i] for i in range(len(norm_pred_str)) if len(norm_label_str[i]) > 0]
         norm_label_str = [norm_label_str[i] for i in range(len(norm_label_str)) if len(norm_label_str[i]) > 0]
 
-        wer_ortho = 100 * metric.compute(predictions=pred_str, references=label_str)
-        wer = 100 * metric.compute(predictions=norm_pred_str, references=norm_label_str)
+        # wer_ortho = 100 * metric.compute(predictions=pred_str, references=label_str)
+        # wer = 100 * metric.compute(predictions=norm_pred_str, references=norm_label_str)
+        wer_ortho = 100 * jiwer.wer(reference=label_str, hypothesis=pred_str)
+        wer = 100 * jiwer.wer(reference=norm_label_str, hypothesis=norm_pred_str)
+
         return {"wer": wer, "wer_ortho": wer_ortho}, pred_str, label_str, norm_pred_str, norm_label_str
 
     # 12. Define Training Schedule
@@ -1746,6 +1799,8 @@ def main():
         eval_steps = steps_per_epoch
     else:
         eval_steps = training_args.eval_steps
+
+    save_steps = training_args.save_steps
 
     # 13. Define optimizer, LR scheduler, collator
 
@@ -1950,6 +2005,7 @@ def main():
     continue_training = True
     epochs_trained = 0
     cur_step = 0
+    has_halved = False
 
     checkpoint = None
     if training_args.resume_from_checkpoint is not None:
@@ -1958,7 +2014,10 @@ def main():
         checkpoint = last_checkpoint
 
     if checkpoint is not None:
-        accelerator.load_state(checkpoint)
+        # accelerator.load_state(checkpoint)
+        # solved "Missing key(s) in state_dict: "proj_out.weight"" issue
+        # tied parameters' saving/reloading
+        accelerator.load_state(checkpoint, strict=False)
         # Find num steps and epoch from saved state string pattern
         pattern = r"checkpoint-(\d+)-epoch-(\d+)"
         match = re.search(pattern, checkpoint)
@@ -2036,8 +2095,14 @@ def main():
                         prefix="train",
                     )
 
+                # more fine-grained eval/saving at last training steps
+                if not has_halved and cur_step > total_train_steps // 2:
+                    save_steps /= 2
+                    eval_steps /= 2
+                    has_halved = True
+
                 # save checkpoint and weights after each save_steps and at the end of training
-                if (cur_step % training_args.save_steps == 0) or cur_step == total_train_steps:
+                if (cur_step % save_steps == 0) or cur_step == total_train_steps:
                     intermediate_dir = os.path.join(training_args.output_dir, f"checkpoint-{cur_step}-epoch-{epoch}")
                     accelerator.save_state(output_dir=intermediate_dir)
                     # feature_extractor.save_pretrained(intermediate_dir)
@@ -2114,15 +2179,16 @@ def main():
                             )
                             eval_metrics.update(wer_metric)
                             wer_desc = " ".join([f"Eval {key}: {value} |" for key, value in wer_metric.items()])
-                            log_pred(
-                                accelerator,
-                                pred_str,
-                                label_str,
-                                norm_pred_str,
-                                norm_label_str,
-                                step=cur_step,
-                                prefix=eval_split,
-                            )
+                            # too large files to sync at the end
+                            # log_pred(
+                            #     accelerator,
+                            #     pred_str,
+                            #     label_str,
+                            #     norm_pred_str,
+                            #     norm_label_str,
+                            #     step=cur_step,
+                            #     prefix=eval_split,
+                            # )
 
                         # Print metrics and update progress bar
                         steps_trained_progress_bar.write(
