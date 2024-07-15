@@ -100,7 +100,7 @@ $CMD run_pseudo_labelling_b.py \
     --input_data_file "$input_file" \
     --output_dir "$outdir" \
     --output_data_file "$output_file" \
-    --audio_column_name "audio_filepath" \
+    --audio_column_name "audio_zip_filepath" \
     --id_column_name "id" \
     --duration_column_name "duration" \
     --sort_by_duration True \

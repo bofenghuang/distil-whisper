@@ -70,6 +70,7 @@ import math
 import soundfile as sf
 # from text_normalization.normalize_french import FrenchTextNormalizer
 from normalizers import BasicTextNormalizer, EnglishTextNormalizer, FrenchTextNormalizer
+from utils.audio_utils import get_waveform_from_audio_or_stored_zip
 from utils.augment_audio import SpeechAugmentator
 
 
@@ -450,6 +451,10 @@ class DistillationTrainingArguments(Seq2SeqTrainingArguments):
             )
         },
     )
+    initial_save_and_eval_steps_multiplier: int = field(
+        default=1,
+        metadata={"help": ""},
+    )
 
 
 timestamp_pat = re.compile(r"<\|\d+\.\d+\|>")
@@ -537,10 +542,14 @@ class SpeechDataset(Dataset):
         sample = self.dataset[n]
 
         # read waveform
-        waveform, sample_rate = sf.read(
-            sample[self.audio_column_name], start=0, frames=-1, dtype="float32", always_2d=True
-        )
-        waveform = waveform[:, 0]
+        # waveform, sample_rate = sf.read(
+        #     sample[self.audio_column_name], start=0, frames=-1, dtype="float32", always_2d=True
+        # )
+        # waveform = waveform[:, 0]
+
+        # tmp: fallback to "audio_filepath" if "audio_zip_filepath" doesn't exist
+        audio_column_name = self.audio_column_name if self.audio_column_name in sample else "audio_filepath"
+        waveform, sample_rate = get_waveform_from_audio_or_stored_zip(sample[audio_column_name])
 
         # online speech augmentation
         if self.augmentator is not None:
@@ -1802,6 +1811,11 @@ def main():
 
     save_steps = training_args.save_steps
 
+    # do more coarse-grained eval/save in the beginning to save time
+    initial_save_and_eval_steps_multiplier = training_args.initial_save_and_eval_steps_multiplier
+    save_steps *= initial_save_and_eval_steps_multiplier
+    eval_steps *= initial_save_and_eval_steps_multiplier
+
     # 13. Define optimizer, LR scheduler, collator
 
     forbidden_module = [
@@ -2005,7 +2019,7 @@ def main():
     continue_training = True
     epochs_trained = 0
     cur_step = 0
-    has_halved = False
+    has_switched_save_and_eval_steps_back = False
 
     checkpoint = None
     if training_args.resume_from_checkpoint is not None:
@@ -2096,10 +2110,10 @@ def main():
                     )
 
                 # more fine-grained eval/saving at last training steps
-                if not has_halved and cur_step > total_train_steps // 2:
-                    save_steps /= 2
-                    eval_steps /= 2
-                    has_halved = True
+                if not has_switched_save_and_eval_steps_back and cur_step > total_train_steps // 2:
+                    save_steps /= initial_save_and_eval_steps_multiplier
+                    eval_steps /= initial_save_and_eval_steps_multiplier
+                    has_switched_save_and_eval_steps_back = True
 
                 # save checkpoint and weights after each save_steps and at the end of training
                 if (cur_step % save_steps == 0) or cur_step == total_train_steps:

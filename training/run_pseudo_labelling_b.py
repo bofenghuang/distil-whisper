@@ -63,6 +63,7 @@ import re
 import json
 import soundfile as sf
 # from text_normalization.normalize_french import FrenchTextNormalizer
+from utils.audio_utils import get_waveform_from_audio_or_stored_zip
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -371,10 +372,14 @@ class SpeechDataset(Dataset):
         sample = self.dataset[n]
 
         # bh: read waveform
-        waveform, sample_rate = sf.read(
-            sample[self.audio_column_name], start=0, frames=-1, dtype="float32", always_2d=True
-        )
-        waveform = waveform[:, 0]
+        # waveform, sample_rate = sf.read(
+        #     sample[self.audio_column_name], start=0, frames=-1, dtype="float32", always_2d=True
+        # )
+        # waveform = waveform[:, 0]
+
+        # tmp: fallback to "audio_filepath" if "audio_zip_filepath" doesn't exist
+        audio_column_name = self.audio_column_name if self.audio_column_name in sample else "audio_filepath"
+        waveform, sample_rate = get_waveform_from_audio_or_stored_zip(sample[audio_column_name])
 
         # bh: compute log-Mel input features from input audio array
         input_dict = self.processor.feature_extractor(

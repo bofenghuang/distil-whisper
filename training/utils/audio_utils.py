@@ -139,13 +139,12 @@ def get_waveform_from_stored_zip(
     data = read_from_stored_zip(path, byte_offset, byte_size)
     f = io.BytesIO(data)
     assert is_sf_audio_data(data), path
-    features_or_waveform = get_waveform(
+    return get_waveform(
         f,
         always_2d=False,
         output_sample_rate=use_sample_rate,
         waveform_transforms=waveform_transforms,
-    )[0]
-    return features_or_waveform
+    )
 
 
 def get_waveform_from_audio_or_stored_zip(path: str, use_sample_rate=None, waveform_transforms=None):
@@ -169,9 +168,9 @@ def get_waveform_from_audio_or_stored_zip(path: str, use_sample_rate=None, wavef
             always_2d=False,
             output_sample_rate=use_sample_rate,
             waveform_transforms=waveform_transforms,
-        )[0]
+        )
     elif len(slice_ptr) == 2:
-        features_or_waveform = get_waveform_from_stored_zip(
+        return get_waveform_from_stored_zip(
             _path,
             slice_ptr[0],
             slice_ptr[1],
@@ -180,8 +179,6 @@ def get_waveform_from_audio_or_stored_zip(path: str, use_sample_rate=None, wavef
         )
     else:
         raise ValueError(f"Invalid path: {path}")
-
-    return features_or_waveform
 
 
 def is_sf_audio_data(data: bytes) -> bool:
