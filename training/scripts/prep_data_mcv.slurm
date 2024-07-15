@@ -46,7 +46,7 @@ export HF_EVALUATE_OFFLINE="1"
 # CPUs
 num_workers=80
 
-# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/it/train/train_mozilla-foundation_common_voice_17_0_manifest_whisper_large_v3.json"
+# input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/it/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
 
 # take arg
 input_file=$1
@@ -76,7 +76,7 @@ python scripts/filter_whisper_transcript.py \
 
 input_file="${input_file%.*}_norm_wer_filt.json"
 output_file="${input_file/\/train\//\/train_concatenated\/}"
-# output_file="${input_file/\/train\//\/train_concatenated_20\/}"
+# output_file="${input_file/\/train\//\/train_concatenated_10\/}"
 
 # concat
 python scripts/concat_asr_examples.py \

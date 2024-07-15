@@ -15,6 +15,7 @@ sys.path.append(parent_dir)
 
 
 import json
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import fire
@@ -32,9 +33,21 @@ def write_dataframe_to_json(df, output_file_path, mode="w", encoding="utf-8", de
     print(f"Saved manifest into {output_file_path}")
 
 
+def pack_audio_files_into_zip(audio_dir):
+    # print(f"Packing audio files in {audio_dir}")
+    zip_filepath = f"{audio_dir}.zip"
+    # Pack audios/features into zip
+    create_zip(audio_dir, zip_filepath)
+    # Fetch zip manifest
+    # mapping of file_stem - new_zip_path
+    audio_filepaths = get_zip_manifest(zip_filepath)
+    return audio_filepaths
+
+
 def main(
     input_manifest_filepath: str,
     output_manifest_filepath: str,
+    preprocessing_num_workers: int = 8,
 ):
     # don't infer data type
     data_df = pd.read_json(input_manifest_filepath, lines=True, dtype=False)
@@ -51,26 +64,36 @@ def main(
     data_df["audio_dir"], data_df["audio_filename"] = zip(*data_df["audio_filepath"].apply(_split_function))
 
     # sort by order in audio directories
-    data_df.sort_values(["audio_dir", "audio_filename"], inplace=True)
+    # data_df.sort_values(["audio_dir", "audio_filename"], inplace=True)
 
-    data_dfs_updated = []
-    for audio_dir, group_df in data_df.groupby("audio_dir"):
-        print(f"Packing audio files in {audio_dir}")
-        zip_filepath = f"{audio_dir}.zip"
-        # Pack audios/features into zip
-        create_zip(audio_dir, zip_filepath)
-        # Fetch zip manifest
-        audio_filepaths = get_zip_manifest(zip_filepath)
-        # Update audio_filepath
-        group_df["audio_zip_filepath"] = group_df["audio_filename"].map(audio_filepaths.get)
-        data_dfs_updated.append(group_df)
+    # data_dfs_updated = []
+    # for audio_dir, group_df in data_df.groupby("audio_dir"):
+    #     print(f"Packing audio files in {audio_dir}")
+    #     zip_filepath = f"{audio_dir}.zip"
+    #     # Pack audios/features into zip
+    #     create_zip(audio_dir, zip_filepath)
+    #     # Fetch zip manifest
+    #     audio_filepaths = get_zip_manifest(zip_filepath)
+    #     # Update audio_filepath
+    #     group_df["audio_zip_filepath"] = group_df["audio_filename"].map(audio_filepaths.get)
+    #     data_dfs_updated.append(group_df)
 
-    new_data_df = pd.concat(data_dfs_updated)
+    # # Concatenate all the group_dfs together
+    # data_df = pd.concat(data_dfs_updated)
+
+    with ProcessPoolExecutor(max_workers=preprocessing_num_workers) as executor:
+        audio_filepaths = list(executor.map(pack_audio_files_into_zip, data_df["audio_dir"].unique().tolist()))
+
+    # merge list of dicts
+    audio_filepaths = {k: v for dct in audio_filepaths for k, v in dct.items()}
+
+    # Update audio_filepath in DataFrame
+    data_df["audio_zip_filepath"] = data_df["audio_filename"].map(audio_filepaths.get)
 
     # drop intermediate cols
-    new_data_df.drop(["audio_dir", "audio_filename"], axis=1, inplace=True)
+    data_df.drop(["audio_dir", "audio_filename"], axis=1, inplace=True)
 
-    write_dataframe_to_json(new_data_df, output_manifest_filepath)
+    write_dataframe_to_json(data_df, output_manifest_filepath)
 
 
 if __name__ == "__main__":

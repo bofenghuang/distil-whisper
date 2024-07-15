@@ -130,9 +130,9 @@ def main(
     # wer_ortho = 100 * metric.compute(predictions=dataset["whisper_transcript"], references=dataset[text_column_name])
     # wer_ortho = 100 * metric.compute(predictions=dataset["whisper_transcript_wo_timestamp"], references=dataset[text_column_name])
     # wer = 100 * metric.compute(predictions=dataset["whisper_transcript_norm"], references=dataset[f"{text_column_name}_norm"])
-    wer_ortho = 100 * jiwer.wer(reference=dataset[text_column_name], hypothesis=dataset["whisper_transcript_wo_timestamp"])
-    wer = 100 * jiwer.wer(reference=dataset[f"{text_column_name}_norm"], hypothesis=dataset["whisper_transcript_norm"])
-    print(f"WER: {wer_ortho:.4f}%, Norm WER: {wer:.4f}%")
+    # wer_ortho = 100 * jiwer.wer(reference=dataset[text_column_name], hypothesis=dataset["whisper_transcript_wo_timestamp"])
+    # wer = 100 * jiwer.wer(reference=dataset[f"{text_column_name}_norm"], hypothesis=dataset["whisper_transcript_norm"])
+    # print(f"WER: {wer_ortho:.4f}%, Norm WER: {wer:.4f}%")
 
     # remove tmp col
     dataset = dataset.remove_columns("whisper_transcript_wo_timestamp")

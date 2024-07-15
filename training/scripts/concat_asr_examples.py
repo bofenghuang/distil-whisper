@@ -145,7 +145,7 @@ def main(
         def _concat_and_save_wav_files(input_files, speaker_name):
             output_dir = input_files[0]
             output_dir = output_dir.replace("/train/", "/train_concatenated/")
-            # output_dir = output_dir.replace("/train/", "/train_concatenated_20/")
+            # output_dir = output_dir.replace("/train/", "/train_concatenated_10/")
             output_dir = output_dir.rsplit("/", 1)[0]
             output_file_name = md5("+".join([x.rsplit("/", 1)[1].rsplit(".", 1)[0] for x in input_files]))
             output_file_name = speaker_name + "-" + output_file_name + ".wav"
