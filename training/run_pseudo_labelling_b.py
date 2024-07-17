@@ -377,9 +377,7 @@ class SpeechDataset(Dataset):
         # )
         # waveform = waveform[:, 0]
 
-        # tmp: fallback to "audio_filepath" if "audio_zip_filepath" doesn't exist
-        audio_column_name = self.audio_column_name if self.audio_column_name in sample else "audio_filepath"
-        waveform, sample_rate = get_waveform_from_audio_or_stored_zip(sample[audio_column_name])
+        waveform, sample_rate = get_waveform_from_audio_or_stored_zip(sample[self.audio_column_name])
 
         # bh: compute log-Mel input features from input audio array
         input_dict = self.processor.feature_extractor(
@@ -619,6 +617,9 @@ def main():
                 if data_args.streaming
                 else raw_datasets[split].select(range(data_args.max_samples_per_split))
             )
+
+    # tmp: fallback to "audio_filepath" if "audio_zip_filepath" doesn't exist
+    data_args.audio_column_name = data_args.audio_column_name if data_args.audio_column_name in raw_datasets["train"].column_names else "audio_filepath"
 
     # bh: fake ids (used to attribute predicted text)
     fake_id_column = False

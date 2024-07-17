@@ -9,6 +9,7 @@ import json
 import os
 import re
 import wave
+from pathlib import Path
 from typing import Optional
 
 import fire
@@ -16,7 +17,6 @@ import numpy as np
 from datasets import load_dataset
 from datasets.arrow_dataset import table_iter
 from tqdm import tqdm
-
 
 timestamp_pat = re.compile(r"<\|(\d+\.\d+)\|>")
 
@@ -74,10 +74,19 @@ def main(
     is_voxpopuli = "voxpopuli" in input_file_path
     is_yodas = "yodas" in input_file_path
     is_mtedx = "multilingual-tedx" in input_file_path
+    is_african_accented_french = "african_accented_french" in input_file_path
 
-    id_column_name = (
-        "audio_filepath" if is_mcv else "id" if (is_mls or is_mtedx) else "audio_id" if is_voxpopuli else "utt_id" if is_yodas else None
-    )
+    if is_mcv or is_african_accented_french:
+        id_column_name = "audio_filepath"
+    elif is_mls or is_mtedx:
+        id_column_name = "id"
+    elif is_voxpopuli:
+        id_column_name = "audio_id"
+    elif is_yodas:
+        id_column_name = "utt_id"
+    else:
+        raise ValueError("Need to set id_column_name")
+
     speaker_column_name = "speaker_id"
     audio_column_name = "audio_filepath"
     duration_column_name = "duration"
@@ -117,6 +126,12 @@ def main(
     if is_yodas:
         dataset = dataset.map(
             lambda x: {speaker_column_name: x["utt_id"].lstrip("-").split("-", 1)[0]},
+            num_proc=preprocessing_num_workers,
+            desc="preprocessing...",
+        )
+    if is_african_accented_french:
+        dataset = dataset.map(
+            lambda x: {speaker_column_name: re.split(r"[-_]", Path(x[audio_column_name]).stem[::-1], maxsplit=1)[-1][::-1]},
             num_proc=preprocessing_num_workers,
             desc="preprocessing...",
         )
@@ -220,7 +235,9 @@ def main(
             merged_examples[f"prev_{whisper_transcript_column_name}"] = [""]
             for idx in range(1, len(merged_examples["condition_on_prev"])):
                 merged_examples[f"prev_{whisper_transcript_column_name}"].append(
-                    merged_examples[whisper_transcript_column_name][idx - 1] if merged_examples["condition_on_prev"][idx] else ""
+                    merged_examples[whisper_transcript_column_name][idx - 1]
+                    if merged_examples["condition_on_prev"][idx]
+                    else ""
                 )
 
         # concat audios

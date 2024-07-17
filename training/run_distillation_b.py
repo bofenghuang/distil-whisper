@@ -179,8 +179,8 @@ class DataTrainingArguments:
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
 
-    train_file: Optional[str] = field(default=None, metadata={"help": "Path to the train csv or json file"})
-    validation_file: Optional[str] = field(default=None, metadata={"help": "Path to the validation csv or json file"})
+    train_files: Optional[str] = field(default=None, metadata={"help": "Path to the train csv or json file"})
+    validation_files: Optional[str] = field(default=None, metadata={"help": "Path to the validation csv or json file"})
     train_dataset_name: str = field(
         default=None,
         metadata={
@@ -1154,8 +1154,8 @@ def main():
         # )
 
         # bh: load local dataset/datasets
-        ext = data_args.train_file.rsplit(".", 1)[-1]
-        train_files = data_args.train_file.split("+")
+        ext = data_args.train_files.rsplit(".", 1)[-1]
+        train_files = data_args.train_files.split("+")
         train_files = train_files if len(train_files) > 1 else train_files[0]
         raw_datasets["train"] = load_dataset(ext, data_files=train_files, split="train")
 
@@ -1214,7 +1214,7 @@ def main():
         #         )
 
         # bh: load local datasets
-        validation_files = data_args.validation_file.split("+")
+        validation_files = data_args.validation_files.split("+")
         all_eval_splits = []
         if len(validation_files) == 1:
             validation_file = validation_files[0]
@@ -1552,7 +1552,7 @@ def main():
     for split in raw_datasets:
         durations = np.asarray(raw_datasets[split][duration_column_name])
         accelerator.print(
-            f"{split} duration: tot {durations.sum() / 3600:.2f}h, mean {durations.mean():.2f}s, min {durations.min():.2f}s, max {durations.max():.2f}s"
+            f"{split} duration: tot {durations.sum() / 3600:,.2f} h, mean {durations.mean():.2f} s, min {durations.min():.2f} s, max {durations.max():.2f} s"
         )
 
     # 10.4: pre-process training/evaluation datasets

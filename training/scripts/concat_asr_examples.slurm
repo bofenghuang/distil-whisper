@@ -71,7 +71,7 @@ python scripts/concat_asr_examples.py \
     --preprocessing_batch_size 1000 \
     --preprocessing_num_workers $num_workers
 
-# tmp: remove unconcacated audios
+# tmp: remove unconcatenated audio files
 find $input_dir -mindepth 1 -type f -name "*.wav" -delete
 find $input_dir -mindepth 1 -type d -empty -delete
 
@@ -81,7 +81,7 @@ python scripts/zip_audio_files.py \
     --output_manifest_filepath $final_output_file \
     --preprocessing_num_workers $num_workers
 
-# tmp: remove unzipped audios
+# tmp: remove unzipped audio files
 find $output_dir -mindepth 1 -type f -name "*.wav" -delete
 find $output_dir -mindepth 1 -type d -empty -delete
 

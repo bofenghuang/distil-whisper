@@ -75,6 +75,7 @@ model_name_or_path="/gpfsdswork/projects/rech/cjc/commun/models/whisper/whisper-
 
 # take arg
 input_file=$1
+lang="${2:-en}"
 
 # tmp: get tmp files
 tmp_dir=${input_file%/*}/splitted_files
@@ -85,7 +86,7 @@ input_file="${tmp_dir}/${filename}_0${SLURM_ARRAY_TASK_ID}.json"
 
 # infer args
 # lang="it"
-lang="pt"
+# lang="pt"
 # lang="de"
 
 # tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/-/\_/g" -e "s/[ |=/]/-/g")"
