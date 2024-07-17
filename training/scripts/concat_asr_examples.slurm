@@ -59,8 +59,11 @@ num_workers=320
 # take arg
 input_file=$1
 
+input_dir="${input_file%/*}"
 # output_file="${input_file%.*}_concatenated.json"
 output_file="${input_file/\/train\//\/train_concatenated\/}"
+output_dir="${output_file%/*}"
+final_output_file="${output_file%.*}_zipped.json"
 
 python scripts/concat_asr_examples.py \
     --input_file_path $input_file \
@@ -68,8 +71,22 @@ python scripts/concat_asr_examples.py \
     --preprocessing_batch_size 1000 \
     --preprocessing_num_workers $num_workers
 
+# tmp: remove unconcacated audios
+find $input_dir -mindepth 1 -type f -name "*.wav" -delete
+find $input_dir -mindepth 1 -type d -empty -delete
+
+# tmp: zip audio files
+python scripts/zip_audio_files.py \
+    --input_manifest_filepath $output_file \
+    --output_manifest_filepath $final_output_file \
+    --preprocessing_num_workers $num_workers
+
+# tmp: remove unzipped audios
+find $output_dir -mindepth 1 -type f -name "*.wav" -delete
+find $output_dir -mindepth 1 -type d -empty -delete
+
 # tmp: split for parallel decoding
-./scripts/split_file.sh "$output_file"
+./scripts/split_file.sh "$final_output_file"
 
 # python scripts/concat_asr_examples.py \
 #     --input_file_path $output_file \

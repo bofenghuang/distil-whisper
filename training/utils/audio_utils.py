@@ -9,6 +9,7 @@ Adapted from https://github.com/facebookresearch/fairseq/blob/main/fairseq/data/
 
 import io
 import mmap
+import wave
 from pathlib import Path
 from typing import Any, BinaryIO, List, Optional, Tuple, Union
 
@@ -138,6 +139,7 @@ def get_waveform_from_stored_zip(
     assert path.endswith(".zip")
     data = read_from_stored_zip(path, byte_offset, byte_size)
     f = io.BytesIO(data)
+    # error on empty audio
     assert is_sf_audio_data(data), path
     return get_waveform(
         f,
@@ -181,6 +183,30 @@ def get_waveform_from_audio_or_stored_zip(path: str, use_sample_rate=None, wavef
         raise ValueError(f"Invalid path: {path}")
 
 
+def get_waveform_bytes_from_audio_or_stored_zip(path: str) -> bytes:
+    _path, slice_ptr = parse_path(path)
+    if len(slice_ptr) == 0:
+        return get_waveform_bytes(_path)
+    elif len(slice_ptr) == 2:
+        return get_waveform_bytes_from_stored_zip(
+            _path,
+            slice_ptr[0],
+            slice_ptr[1],
+        )
+    else:
+        raise ValueError(f"Invalid path: {path}")
+
+
+def get_waveform_bytes(path: str) -> bytes:
+    with wave.open(path, "rb") as f:
+        return f.readframes(f.getnframes())
+
+
+def get_waveform_bytes_from_stored_zip(zip_path: str, offset: int, length: int) -> bytes:
+    # shift head of 44 bytes
+    return read_from_stored_zip(zip_path, offset, length)[44:]
+
+
 def is_sf_audio_data(data: bytes) -> bool:
     is_wav = data[0] == 82 and data[1] == 73 and data[2] == 70
     is_flac = data[0] == 102 and data[1] == 76 and data[2] == 97
@@ -190,6 +216,10 @@ def is_sf_audio_data(data: bytes) -> bool:
 
 def mmap_read(path: str, offset: int, length: int) -> bytes:
     with open(path, "rb") as f:
+        # f.fileno() for file handle
+        # length in bytes of the memory map
+        # 0 is a special value indicating that the system should create a memory map large enough to hold the entire file
+        # mmap mode should be compatible with open
         with mmap.mmap(f.fileno(), length=0, access=mmap.ACCESS_READ) as mmap_o:
             data = mmap_o[offset: offset + length]
     return data
