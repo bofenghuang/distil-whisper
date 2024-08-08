@@ -299,10 +299,10 @@ class DataTrainingArguments:
         default=448,
         metadata={"help": "Truncate transcriptions that are longer `max_label_length` tokens."},
     )
-    pad_to_multiple_of: int = field(
-        default=8,
-        metadata={"help": ""},
-    )
+    # pad_to_multiple_of: int = field(
+    #     default=8,
+    #     metadata={"help": ""},
+    # )
     pad_target_to_multiple_of: Optional[int] = field(
         default=None,
         metadata={
@@ -675,7 +675,7 @@ class DataCollatorSpeechSeq2SeqWithPadding:
     input_padding: Union[bool, str] = "max_length"
     target_padding: Union[bool, str] = "max_length"
     max_target_length: Optional[int] = None
-    pad_to_multiple_of: Optional[int] = None
+    # pad_to_multiple_of: Optional[int] = None
 
     def __call__(self, features: List[Dict[str, Union[List[int], np.ndarray]]]) -> Dict[str, np.ndarray]:
         # split inputs and labels since they have to be of different lengths and need
@@ -691,7 +691,7 @@ class DataCollatorSpeechSeq2SeqWithPadding:
         batch = self.processor.feature_extractor.pad(
             input_features,
             padding=self.input_padding,
-            pad_to_multiple_of=self.pad_to_multiple_of,  # 128 doesn't need to pad but perhaps useful for 80 (v1/v2)
+            # pad_to_multiple_of=self.pad_to_multiple_of,  # ~~128 doesn't need to pad but perhaps useful for 80 (v1/v2)~~, actually cannot pad
             return_tensors="pt",
         )
 
@@ -1871,7 +1871,7 @@ def main():
         target_padding="longest",
         # target_padding="max_length",
         # max_target_length=max_label_length,
-        pad_to_multiple_of=data_args.pad_to_multiple_of,
+        # pad_to_multiple_of=data_args.pad_to_multiple_of,
     )
 
     eval_data_collator = DataCollatorSpeechSeq2SeqWithPadding(
@@ -1883,7 +1883,7 @@ def main():
         target_padding="longest",
         # target_padding="max_length",
         # max_target_length=max_label_length,
-        pad_to_multiple_of=data_args.pad_to_multiple_of,
+        # pad_to_multiple_of=data_args.pad_to_multiple_of,
     )
 
     # 14. Define generation arguments - we need to do this before we wrap the models in DDP

@@ -83,9 +83,11 @@ class SpeechAugmentator:
         # todo: reverb, check more augmentation in NeMo and Speechbrain
         transforms = [
             AddGaussianNoise(min_amplitude=0.005, max_amplitude=0.015, p=1.0),
-            # todo: set to True since don't want it to exceed 30s for whisper models, may need to set to False for other models
-            TimeStretch(min_rate=0.9, max_rate=1.1, leave_length_unchanged=True, p=1.0),
-            PitchShift(min_semitones=-4, max_semitones=4, p=1.0),
+            # bh: set leave_length_unchanged to True since don't want it to exceed 30s for whisper models, may need to set to False for other models
+            # bh: set min_rate to 1.0 since we don't want to lose signals
+            TimeStretch(min_rate=1.0, max_rate=1.1, leave_length_unchanged=True, p=1.0),
+            # signals become unreal
+            # PitchShift(min_semitones=-4, max_semitones=4, p=1.0),
             # not helpful when processor normalize waveform
             # Gain(min_gain_in_db=-6, max_gain_in_db=6, p=1.0),
             # TimeMask(min_band_part=0.1, max_band_part=0.15, fade=True, p=0.05),

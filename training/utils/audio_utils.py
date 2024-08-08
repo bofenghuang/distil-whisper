@@ -109,6 +109,9 @@ def get_waveform(
         path_or_fp, dtype="float32", always_2d=True, frames=frames, start=start
     )
     waveform = waveform.T  # T x C -> C x T
+
+    # waveform, sample_rate = torchaudio.load(file_path, channels_first=True, frame_offset=start, num_frames=frames)
+
     waveform, sample_rate = convert_waveform(
         waveform,
         sample_rate,

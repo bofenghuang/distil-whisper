@@ -59,18 +59,21 @@ def main(
     #     token=token,
     # )
 
-    # normalizer_ = FrenchTextNormalizer()
-    normalizer_ = (
-        EnglishTextNormalizer() if language == "en" else FrenchTextNormalizer() if language == "fr" else BasicTextNormalizer()
-    )
+    # normalizer = FrenchTextNormalizer()
+    if language in ["en", "english"]:
+        normalizer = EnglishTextNormalizer()
+    elif language in ["fr", "french"]:
+        normalizer = FrenchTextNormalizer()
+    else:
+        normalizer = BasicTextNormalizer()
 
-    def normalizer(s):
+    def normalize_(s):
         # remove timstamps
         s = _filter_timestamps(s)
 
         # normalize text
         # w/o "-"
-        s = normalizer_(s, do_lowercase=True, do_ignore_words=False, symbols_to_keep="'", do_num2text=True)
+        s = normalizer(s, do_lowercase=True, do_ignore_words=False, symbols_to_keep="'", do_num2text=True)
 
         return s
 
@@ -83,8 +86,8 @@ def main(
 
     def process_function(example):
         # normalize everything and re-compute the WER
-        example["whisper_transcript_norm"] = normalizer(example["whisper_transcript"])
-        example[f"{text_column_name}_norm"] = normalizer(example[text_column_name])
+        example["whisper_transcript_norm"] = normalize_(example["whisper_transcript"])
+        example[f"{text_column_name}_norm"] = normalize_(example[text_column_name])
 
         example["whisper_transcript_wo_timestamp"] = _filter_timestamps(example["whisper_transcript"])
 
