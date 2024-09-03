@@ -70,15 +70,16 @@ def main(
     max_samples: Optional[int] = None,
 ):
     is_mcv = "common_voice" in input_file_path
-    is_mls = "multilingual_librispeech" in input_file_path
+    is_ls = "librispeech" in input_file_path  # mls or ls
     is_voxpopuli = "voxpopuli" in input_file_path
     is_yodas = "yodas" in input_file_path
     is_mtedx = "multilingual-tedx" in input_file_path
     is_african_accented_french = "african_accented_french" in input_file_path
+    is_peoples_speech = "peoples_speech" in input_file_path
 
     if is_mcv or is_african_accented_french:
         id_column_name = "audio_filepath"
-    elif is_mls or is_mtedx:
+    elif is_ls or is_mtedx or is_peoples_speech:
         id_column_name = "id"
     elif is_voxpopuli:
         id_column_name = "audio_id"
@@ -117,7 +118,7 @@ def main(
             num_proc=preprocessing_num_workers,
             desc="preprocessing...",
         )
-    if is_mls:
+    if is_ls:
         dataset = dataset.map(
             lambda x: {speaker_column_name: str(x[speaker_column_name]) + "-" + str(x["chapter_id"])},
             num_proc=preprocessing_num_workers,
@@ -132,6 +133,12 @@ def main(
     if is_african_accented_french:
         dataset = dataset.map(
             lambda x: {speaker_column_name: re.split(r"[-_]", Path(x[audio_column_name]).stem[::-1], maxsplit=1)[-1][::-1]},
+            num_proc=preprocessing_num_workers,
+            desc="preprocessing...",
+        )
+    if is_peoples_speech:
+        dataset = dataset.map(
+            lambda x: {speaker_column_name: x["id"].split("_SLASH_", 1)[0]},
             num_proc=preprocessing_num_workers,
             desc="preprocessing...",
         )
@@ -160,6 +167,7 @@ def main(
         def _concat_and_save_wav_files(input_files, speaker_name):
             output_dir = input_files[0]
             output_dir = output_dir.replace("/train/", "/train_concatenated/")
+            # output_dir = output_dir.replace("/train.clean.100+train.clean.360+train.other.500/", "/train_concatenated/")
             # output_dir = output_dir.replace("/train/", "/train_concatenated_10/")
             output_dir = output_dir.rsplit("/", 1)[0]
             output_file_name = md5("+".join([x.rsplit("/", 1)[1].rsplit(".", 1)[0] for x in input_files]))

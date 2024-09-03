@@ -22,9 +22,9 @@ echo "START TIME: $(date)"
 # set up environment
 module purge
 module load git-lfs
-module load unrar
-module load anaconda-py3/2023.03
-module load cuda/12.1.0
+# module load unrar
+module load anaconda-py3/2024.06
+module load cuda/12.2.0
 # conda activate speech
 conda activate asr
 
@@ -62,6 +62,7 @@ input_file=$1
 input_dir="${input_file%/*}"
 # output_file="${input_file%.*}_concatenated.json"
 output_file="${input_file/\/train\//\/train_concatenated\/}"
+# output_file="/lustre/fsn1/projects/rech/cjc/commun/corpus/speech/nemo_manifests/openslr/librispeech_asr/train_concatenated/train.clean.100+train.clean.360+train.other.500_openslr_librispeech_asr_manifest.json"
 output_dir="${output_file%/*}"
 final_output_file="${output_file%.*}_zipped.json"
 

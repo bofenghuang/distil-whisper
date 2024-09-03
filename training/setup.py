@@ -27,6 +27,12 @@ _deps = [
     "wandb",
     "tensorboard",
     "nltk",
+    # bh: extra
+    "fire",
+    "more-itertools",
+    "num2words",
+    "text2num",
+    "audiomentations",
 ]
 
 _extras_dev_deps = [

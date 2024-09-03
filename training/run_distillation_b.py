@@ -37,7 +37,7 @@ import torch.nn as nn
 import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
-from accelerate.utils import set_seed
+from accelerate.utils import DistributedType, set_seed
 from datasets import (
     DatasetDict,
     IterableDataset,
@@ -160,7 +160,8 @@ class ModelArguments:
     mask_feature_prob: float = field(default=0.0, metadata={"help": ""})
     mask_feature_length: int = field(default=10, metadata={"help": ""})
     mask_feature_min_masks: int = field(default=0, metadata={"help": ""})
-    dropout: Optional[float] = field(default=None, metadata={"help": "The dropout probability for embeddings+position and each self-attn/cross-attn/mlp."})
+    dropout: Optional[float] = field(default=None, metadata={"help": "The dropout probability for encoder/decoder's embeddings+position and each self-attn/cross-attn/mlp."})
+    bpe_dropout: Optional[float] = field(default=None, metadata={"help": "The dropout probability for embeddings+position."})
     attention_dropout: Optional[float] = field(default=None, metadata={"help": "The dropout ratio for the attention probabilities."})
 
     def __post_init__(self):
@@ -1103,10 +1104,11 @@ def main():
     if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
         if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
-            raise ValueError(
-                f"Output directory ({training_args.output_dir}) already exists and is not empty. "
-                "Use --overwrite_output_dir to overcome."
-            )
+            ...
+            # raise ValueError(
+            #     f"Output directory ({training_args.output_dir}) already exists and is not empty. "
+            #     "Use --overwrite_output_dir to overcome."
+            # )
         elif last_checkpoint is not None and training_args.resume_from_checkpoint is None:
             logger.info(
                 f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
@@ -1248,6 +1250,9 @@ def main():
 
     if model_args.dropout is not None:
         config.dropout = model_args.dropout
+
+    if model_args.bpe_dropout is not None:
+        config.bpe_dropout = model_args.bpe_dropout
 
     if model_args.attention_dropout is not None:
         config.attention_dropout = model_args.attention_dropout
@@ -1455,10 +1460,18 @@ def main():
 
     # 10.2: filter based on maximum number of training/evaluation samples
     if training_args.do_train and data_args.max_train_samples is not None:
+        # raw_datasets["train"] = (
+        #     raw_datasets["train"].take(data_args.max_train_samples)
+        #     if data_args.streaming
+        #     else raw_datasets["train"].select(range(data_args.max_train_samples))
+        # )
+        num_samples = min(data_args.max_train_samples, raw_datasets["train"].num_rows)
+        # shuffle before sampling
+        raw_datasets["train"] = raw_datasets["train"].shuffle(training_args.seed)
         raw_datasets["train"] = (
-            raw_datasets["train"].take(data_args.max_train_samples)
+            raw_datasets["train"].take(num_samples)
             if data_args.streaming
-            else raw_datasets["train"].select(range(data_args.max_train_samples))
+            else raw_datasets["train"].select(range(num_samples))
         )
 
     if training_args.do_eval and data_args.max_eval_samples is not None:
@@ -2083,7 +2096,9 @@ def main():
                 loss, train_metric = train_step(batch, temperature=training_args.temperature)
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(student_model.parameters(), training_args.max_grad_norm)
+                    # accelerator.clip_grad_norm_(student_model.parameters(), training_args.max_grad_norm)
+                    # bh: log grad_norm
+                    _grad_norm = accelerator.clip_grad_norm_(student_model.parameters(), training_args.max_grad_norm)
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
@@ -2092,6 +2107,17 @@ def main():
             if accelerator.sync_gradients:
                 steps_trained_progress_bar.update(1)
                 cur_step += 1
+
+                # bh: log grad_norm
+                if accelerator.distributed_type == DistributedType.DEEPSPEED:
+                    grad_norm = student_model.get_global_grad_norm()
+                    # In some cases the grad norm may not return a float
+                    if hasattr(grad_norm, "item"):
+                        grad_norm = grad_norm.item()
+                else:
+                    grad_norm = _grad_norm.detach().item() if isinstance(_grad_norm, torch.Tensor) else _grad_norm
+                if grad_norm is not None:
+                    train_metric["grad_norm"] = grad_norm
 
                 if cur_step % training_args.logging_steps == 0:
                     steps_trained_progress_bar.write(
