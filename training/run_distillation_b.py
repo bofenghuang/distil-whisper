@@ -156,6 +156,7 @@ class ModelArguments:
     )
     mask_time_prob: float = field(default=0.05, metadata={"help": ""})
     mask_time_length: int = field(default=10, metadata={"help": ""})
+    # mask_time_length: float = field(default=10, metadata={"help": ""})
     mask_time_min_masks: int = field(default=2, metadata={"help": ""})
     mask_feature_prob: float = field(default=0.0, metadata={"help": ""})
     mask_feature_length: int = field(default=10, metadata={"help": ""})
@@ -172,6 +173,9 @@ class ModelArguments:
                 "2. `sdpa`: Flash Attention through PyTorch SDPA. Requires `torch>=2.1`. Recommended for hardware where Flash Attention 2 is not supported, e.g. Turing GPUs, (T4, RTX 2080).\n"
                 "3. `flash_attn_2`: Flash Attention 2 through the Flash Attention package https://github.com/Dao-AILab/flash-attention. **Always** recommended on supported hardware (Ampere, Ada, or Hopper GPUs, e.g., A100, RTX 3090, RTX 4090, H100)."
             )
+
+        # if self.mask_time_length > 1:
+        #     self.mask_time_length = int(self.mask_time_length)
 
 
 @dataclass
@@ -2115,9 +2119,8 @@ def main():
                     if hasattr(grad_norm, "item"):
                         grad_norm = grad_norm.item()
                 else:
-                    grad_norm = _grad_norm.detach().item() if isinstance(_grad_norm, torch.Tensor) else _grad_norm
-                if grad_norm is not None:
-                    train_metric["grad_norm"] = grad_norm
+                    grad_norm = _grad_norm.item() if isinstance(_grad_norm, torch.Tensor) else _grad_norm
+                train_metric["grad_norm"] = grad_norm
 
                 if cur_step % training_args.logging_steps == 0:
                     steps_trained_progress_bar.write(
