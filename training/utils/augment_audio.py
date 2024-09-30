@@ -85,6 +85,7 @@ class SpeechAugmentator:
             AddGaussianNoise(min_amplitude=0.005, max_amplitude=0.015, p=1.0),
             # bh: set leave_length_unchanged to True since don't want it to exceed 30s for whisper models, may need to set to False for other models
             # bh: set min_rate to 1.0 since we don't want to lose signals
+            # bh: actually can't be used in online augmentation when training whisper since we need original timestamps, same for reverbe
             TimeStretch(min_rate=1.0, max_rate=1.1, leave_length_unchanged=True, p=1.0),
             # signals become unreal
             # PitchShift(min_semitones=-4, max_semitones=4, p=1.0),
