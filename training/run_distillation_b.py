@@ -1376,7 +1376,8 @@ def main():
             }
         )
         # set language to None
-        delattr(student_model.generation_config, "language")
+        if hasattr(student_model.generation_config, "language"):
+            delattr(student_model.generation_config, "language")
     elif data_args.language is not None:
         raise ValueError(
             "Setting language token for an English-only checkpoint is not permitted. The language argument should "
