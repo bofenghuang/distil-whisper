@@ -45,12 +45,12 @@ def pack_audio_files_into_zip(audio_dir):
 
 
 def main(
-    input_manifest_filepath: str,
-    output_manifest_filepath: str,
+    input_file_path: str,
+    output_file_path: str,
     preprocessing_num_workers: int = 8,
 ):
     # don't infer data type
-    data_df = pd.read_json(input_manifest_filepath, lines=True, dtype=False)
+    data_df = pd.read_json(input_file_path, lines=True, dtype=False)
 
     # debug
     # data_df = data_df.head(200)
@@ -93,7 +93,7 @@ def main(
     # drop intermediate cols
     data_df.drop(["audio_dir", "audio_filename"], axis=1, inplace=True)
 
-    write_dataframe_to_json(data_df, output_manifest_filepath)
+    write_dataframe_to_json(data_df, output_file_path)
 
 
 if __name__ == "__main__":

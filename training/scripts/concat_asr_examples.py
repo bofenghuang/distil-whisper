@@ -16,6 +16,7 @@ import fire
 import numpy as np
 from datasets import load_dataset
 from datasets.arrow_dataset import table_iter
+# from transformers import AutoTokenizer
 from tqdm import tqdm
 
 timestamp_pat = re.compile(r"<\|(\d+\.\d+)\|>")
@@ -63,6 +64,7 @@ def main(
     output_file_path: str,
     min_duration: float = 0.1,
     max_duration: float = 30.0,
+    # max_tokens: int = 448,
     text_column_name: str = "text",
     whisper_transcript_column_name: str = "whisper_transcript",
     preprocessing_batch_size: int = 1000,  # Using a larger batch size results in a greater portion of audio samples being packed to 30-seconds, at the expense of higher memory consumption
@@ -110,6 +112,15 @@ def main(
         desc="filtering by duration...",
     )
     _print_ds_info(dataset, duration_column_name)
+
+    # todo:
+    if has_text:
+        dataset = dataset.filter(
+            lambda x: x[text_column_name],
+            num_proc=preprocessing_num_workers,
+            desc="filtering out empty text...",
+        )
+        _print_ds_info(dataset, duration_column_name)
 
     # preprocess
     if is_mcv:
@@ -167,6 +178,7 @@ def main(
         def _concat_and_save_wav_files(input_files, speaker_name):
             output_dir = input_files[0]
             output_dir = output_dir.replace("/train/", "/train_concatenated/")
+            # output_dir = output_dir.replace("/projects/", "/rd_storage2/")
             # output_dir = output_dir.replace("/train.clean.100+train.clean.360+train.other.500/", "/train_concatenated/")
             # output_dir = output_dir.replace("/train/", "/train_concatenated_10/")
             output_dir = output_dir.rsplit("/", 1)[0]
@@ -276,7 +288,32 @@ def main(
         lambda _, idx: {"id": f"{idx:09d}"},
         with_indices=True,
         num_proc=preprocessing_num_workers,
+        desc="adding id column..."
     )
+
+    # tokenizer = AutoTokenizer.from_pretrained("openai/whisper-large-v3")
+
+    # def filter_long_text(example):
+    #     # bos, lang, task, no_timestamps, eos
+    #     num_prefix_tokens = 5
+
+    #     def _compute_n_tokens(column_name):
+    #         return len(tokenizer(example[column_name], add_special_tokens=False)["input_ids"])
+
+    #     if has_text and _compute_n_tokens(text_column_name) + num_prefix_tokens > max_tokens:
+    #         return False
+
+    #     if has_whisper_transcript and _compute_n_tokens(whisper_transcript_column_name) + num_prefix_tokens > max_tokens:
+    #         return False
+
+    #     return True
+
+    # dataset = dataset.filter(
+    #     filter_long_text,
+    #     num_proc=preprocessing_num_workers,
+    #     desc="filtering by text length...",
+    # )
+    # _print_ds_info(dataset, duration_column_name)
 
     # export
     write_dataset_to_json(dataset, output_file_path=output_file_path, mode="w")

@@ -54,6 +54,9 @@ num_workers=80
 
 # take arg
 input_file=$1
+lang=$2
+
+input_dir="${input_file%/*}"
 
 # tmp: merge splitted infered files
 ./scripts/merge_files.sh $input_file
@@ -69,6 +72,7 @@ python scripts/norm_whisper_transcript.py \
 python scripts/update_prev_whisper_transcript.py \
     --input_file_path "${input_file%.*}_norm.json" \
     --output_file_path "${input_file%.*}_norm_upprev.json" \
+    --language $lang \
     --num_workers $num_workers
 
 # wer
@@ -77,10 +81,27 @@ python scripts/compute_wer.py \
     --output_file_path "${input_file%.*}_norm_upprev_wer.json" \
     --num_workers $num_workers
 
-# filter (upper-case)
+# filter (upper-case, wer)
 python scripts/filter_whisper_transcript.py \
     --input_file_path "${input_file%.*}_norm_upprev_wer.json" \
     --output_file_path "${input_file%.*}_norm_upprev_wer_filt.json" \
+    --wer_threshold 20 \
     --num_workers $num_workers
+
+# deleting audio files
+python scripts/cleanup_audio_files.py \
+    --input_file_a "${input_file}" \
+    --input_file_b "${input_file%.*}_norm_upprev_wer_filt.json" \
+    --num_workers $num_workers
+
+# zipping audio files
+python scripts/zip_audio_files.py \
+    --input_file_path "${input_file%.*}_norm_upprev_wer_filt.json" \
+    --output_file_path "${input_file%.*}_norm_upprev_wer_filt_zipped.json" \
+    --preprocessing_num_workers $num_workers
+
+# tmp: remove unzipped audio files
+find $input_dir -mindepth 1 -type f -name "*.wav" -delete
+find $input_dir -mindepth 1 -type d -empty -delete
 
 echo "END TIME: $(date)"

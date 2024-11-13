@@ -50,6 +50,7 @@ num_workers=80
 
 # take arg
 input_file=$1
+lang=$2
 
 # tmp: merge splitted infered files
 ./scripts/merge_files.sh $input_file
@@ -65,6 +66,7 @@ python scripts/norm_whisper_transcript.py \
 python scripts/compute_wer.py \
     --input_file_path "${input_file%.*}_norm.json" \
     --output_file_path "${input_file%.*}_norm_wer.json" \
+    --language $lang \
     --num_workers $num_workers
 
 # filter (upper-case, wer)
@@ -74,10 +76,8 @@ python scripts/filter_whisper_transcript.py \
     --wer_threshold 20 \
     --num_workers $num_workers
 
-tmp_input_file="${input_file%.*}_norm_wer.json"
 input_file="${input_file%.*}_norm_wer_filt.json"
 output_file="${input_file/\/train\//\/train_concatenated\/}"
-# output_file="${input_file/\/train\//\/train_concatenated_10\/}"
 input_dir="${input_file%/*}"
 output_dir="${output_file%/*}"
 
@@ -88,31 +88,25 @@ python scripts/concat_asr_examples.py \
     --preprocessing_batch_size 1000 \
     --preprocessing_num_workers $num_workers
 
-# tmp: zip unconcatenated audio files
-# todo: concatenate zipped audio files
-python scripts/zip_audio_files.py \
-    --input_manifest_filepath $tmp_input_file \
-    --output_manifest_filepath "${tmp_input_file%.*}_zipped.json" \
-    --preprocessing_num_workers $num_workers
-
 # tmp: remove unconcatenated audio files
 find $input_dir -mindepth 1 -type f -name "*.wav" -delete
 find $input_dir -mindepth 1 -type d -empty -delete
 
+# wer
+python scripts/compute_wer.py \
+    --input_file_path "${output_file%.*}.json" \
+    --output_file_path "${output_file%.*}_wer.json" \
+    --language $lang \
+    --num_workers $num_workers
+
 # tmp: zip concatenated audio files
 python scripts/zip_audio_files.py \
-    --input_manifest_filepath $output_file \
-    --output_manifest_filepath "${output_file%.*}_zipped.json" \
+    --input_manifest_filepath "${output_file%.*}_wer.json" \
+    --output_manifest_filepath "${output_file%.*}_wer_zipped.json" \
     --preprocessing_num_workers $num_workers
 
 # tmp: remove concatenated audio files
 find $output_dir -mindepth 1 -type f -name "*.wav" -delete
 find $output_dir -mindepth 1 -type d -empty -delete
-
-# wer
-python scripts/compute_wer.py \
-    --input_file_path "${output_file%.*}_zipped.json" \
-    --output_file_path "${output_file%.*}_zipped_wer.json" \
-    --num_workers $num_workers
 
 echo "END TIME: $(date)"
