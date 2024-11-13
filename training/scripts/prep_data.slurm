@@ -22,9 +22,9 @@ echo "START TIME: $(date)"
 # set up environment
 module purge
 module load git-lfs
-module load unrar
-module load anaconda-py3/2023.03
-module load cuda/12.1.0
+# module load unrar
+module load anaconda-py3/2024.06
+module load cuda/12.2.0
 # conda activate speech
 conda activate asr
 
