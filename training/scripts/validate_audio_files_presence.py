@@ -16,7 +16,11 @@ from datasets import load_dataset
 from tqdm import tqdm
 
 
-def process(input_file_path: str, num_workers: int = 64):
+def process(
+    input_file_path: str,
+    audio_column_name: str = "audio_filepath",
+    num_workers: int = 64
+):
     dataset = load_dataset("json", data_files=input_file_path, split="train")
     # print(dataset[0])
     # print(dataset.num_rows)
@@ -38,8 +42,7 @@ def process(input_file_path: str, num_workers: int = 64):
     """
 
     def process_function(example):
-        # p = Path(example["audio_filepath"])
-        p = Path(example["audio_zip_filepath"])
+        p = Path(example[audio_column_name])
         # assert p.exists(), example
         if not p.exists():
             print(example)
@@ -69,4 +72,4 @@ def main(input_dir: str, num_workers: int = 64):
 
 
 if __name__ == "__main__":
-    fire.Fire(main)
+    fire.Fire(process)
