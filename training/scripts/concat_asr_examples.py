@@ -68,7 +68,7 @@ def main(
     text_column_name: str = "text",
     whisper_transcript_column_name: str = "whisper_transcript",
     preprocessing_batch_size: int = 1000,  # Using a larger batch size results in a greater portion of audio samples being packed to 30-seconds, at the expense of higher memory consumption
-    preprocessing_num_workers: int = 8,
+    num_workers: int = 8,
     max_samples: Optional[int] = None,
 ):
     is_mcv = "common_voice" in input_file_path
@@ -108,7 +108,7 @@ def main(
         # ~0s segment can be just badly segmented but text exists in its neibour segments' audio
         # lambda x: min_duration <= x[duration_column_name] and x[duration_column_name] <= max_duration,
         lambda x: x[duration_column_name] <= max_duration,
-        num_proc=preprocessing_num_workers,
+        num_proc=num_workers,
         desc="filtering by duration...",
     )
     _print_ds_info(dataset, duration_column_name)
@@ -117,7 +117,7 @@ def main(
     if has_text:
         dataset = dataset.filter(
             lambda x: x[text_column_name],
-            num_proc=preprocessing_num_workers,
+            num_proc=num_workers,
             desc="filtering out empty text...",
         )
         _print_ds_info(dataset, duration_column_name)
@@ -126,31 +126,31 @@ def main(
     if is_mcv:
         dataset = dataset.map(
             lambda x: {speaker_column_name: x["client_id"]},
-            num_proc=preprocessing_num_workers,
+            num_proc=num_workers,
             desc="preprocessing...",
         )
     if is_ls:
         dataset = dataset.map(
             lambda x: {speaker_column_name: str(x[speaker_column_name]) + "-" + str(x["chapter_id"])},
-            num_proc=preprocessing_num_workers,
+            num_proc=num_workers,
             desc="preprocessing...",
         )
     if is_yodas:
         dataset = dataset.map(
             lambda x: {speaker_column_name: x["utt_id"].lstrip("-").split("-", 1)[0]},
-            num_proc=preprocessing_num_workers,
+            num_proc=num_workers,
             desc="preprocessing...",
         )
     if is_african_accented_french:
         dataset = dataset.map(
             lambda x: {speaker_column_name: re.split(r"[-_]", Path(x[audio_column_name]).stem[::-1], maxsplit=1)[-1][::-1]},
-            num_proc=preprocessing_num_workers,
+            num_proc=num_workers,
             desc="preprocessing...",
         )
     if is_peoples_speech:
         dataset = dataset.map(
             lambda x: {speaker_column_name: x["id"].split("_SLASH_", 1)[0]},
-            num_proc=preprocessing_num_workers,
+            num_proc=num_workers,
             desc="preprocessing...",
         )
 
@@ -278,7 +278,7 @@ def main(
         keep_in_memory=True,
         load_from_cache_file=False,
         remove_columns=dataset.column_names,
-        num_proc=preprocessing_num_workers,
+        num_proc=num_workers,
         desc="concatenating...",
     )
     _print_ds_info(dataset, duration_column_name)
@@ -287,7 +287,7 @@ def main(
     dataset = dataset.map(
         lambda _, idx: {"id": f"{idx:09d}"},
         with_indices=True,
-        num_proc=preprocessing_num_workers,
+        num_proc=num_workers,
         desc="adding id column..."
     )
 
@@ -310,7 +310,7 @@ def main(
 
     # dataset = dataset.filter(
     #     filter_long_text,
-    #     num_proc=preprocessing_num_workers,
+    #     num_proc=num_workers,
     #     desc="filtering by text length...",
     # )
     # _print_ds_info(dataset, duration_column_name)

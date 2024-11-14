@@ -98,7 +98,7 @@ python scripts/cleanup_audio_files.py \
 python scripts/zip_audio_files.py \
     --input_file_path "${input_file%.*}_norm_upprev_wer_filt.json" \
     --output_file_path "${input_file%.*}_norm_upprev_wer_filt_zipped.json" \
-    --preprocessing_num_workers $num_workers
+    --num_workers $num_workers
 
 # tmp: remove unzipped audio files
 find $input_dir -mindepth 1 -type f -name "*.wav" -delete

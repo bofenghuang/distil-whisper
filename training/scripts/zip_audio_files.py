@@ -47,7 +47,7 @@ def pack_audio_files_into_zip(audio_dir):
 def main(
     input_file_path: str,
     output_file_path: str,
-    preprocessing_num_workers: int = 8,
+    num_workers: int = 8,
 ):
     # don't infer data type
     data_df = pd.read_json(input_file_path, lines=True, dtype=False)
@@ -81,7 +81,7 @@ def main(
     # # Concatenate all the group_dfs together
     # data_df = pd.concat(data_dfs_updated)
 
-    with ProcessPoolExecutor(max_workers=preprocessing_num_workers) as executor:
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
         audio_filepaths = list(executor.map(pack_audio_files_into_zip, data_df["audio_dir"].unique().tolist()))
 
     # merge list of dicts

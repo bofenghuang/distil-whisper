@@ -68,7 +68,7 @@ python scripts/concat_asr_examples.py \
     --input_file_path $input_file \
     --output_file_path $output_file \
     --preprocessing_batch_size 1000 \
-    --preprocessing_num_workers $num_workers
+    --num_workers $num_workers
 
 # tmp: remove unconcatenated audio files
 find $input_dir -mindepth 1 -type f -name "*.wav" -delete
@@ -78,7 +78,7 @@ find $input_dir -mindepth 1 -type d -empty -delete
 # python scripts/zip_audio_files.py \
 #     --input_manifest_filepath $output_file \
 #     --output_manifest_filepath $final_output_file \
-#     --preprocessing_num_workers $num_workers
+#     --num_workers $num_workers
 
 # # tmp: remove unzipped audio files
 # find $output_dir -mindepth 1 -type f -name "*.wav" -delete
@@ -92,12 +92,12 @@ find $input_dir -mindepth 1 -type d -empty -delete
 #     --input_file_path $output_file \
 #     --output_file_path $output_file \
 #     --preprocessing_batch_size 1000 \
-#     --preprocessing_num_workers 320
+#     --num_workers 320
 
 # python scripts/tmp_add_ids.py \
 #     --input_file_path_a $output_file \
 #     --input_file_path_b ${output_file%.*}_whisper_large_v3_merged.json \
 #     --output_file_path ${output_file%.*}_whisper_large_v3_merged.json \
-#     --preprocessing_num_workers 320
+#     --num_workers 320
 
 echo "END TIME: $(date)"

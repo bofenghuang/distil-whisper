@@ -86,7 +86,7 @@ python scripts/concat_asr_examples.py \
     --input_file_path $input_file \
     --output_file_path $output_file \
     --preprocessing_batch_size 1000 \
-    --preprocessing_num_workers $num_workers
+    --num_workers $num_workers
 
 # tmp: remove unconcatenated audio files
 find $input_dir -mindepth 1 -type f -name "*.wav" -delete
@@ -101,9 +101,9 @@ python scripts/compute_wer.py \
 
 # tmp: zip concatenated audio files
 python scripts/zip_audio_files.py \
-    --input_manifest_filepath "${output_file%.*}_wer.json" \
-    --output_manifest_filepath "${output_file%.*}_wer_zipped.json" \
-    --preprocessing_num_workers $num_workers
+    --input_file_path "${output_file%.*}_wer.json" \
+    --output_file_path "${output_file%.*}_wer_zipped.json" \
+    --num_workers $num_workers
 
 # tmp: remove concatenated audio files
 find $output_dir -mindepth 1 -type f -name "*.wav" -delete
