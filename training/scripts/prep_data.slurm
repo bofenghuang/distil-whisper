@@ -72,13 +72,13 @@ python scripts/norm_whisper_transcript.py \
 python scripts/update_prev_whisper_transcript.py \
     --input_file_path "${input_file%.*}_norm.json" \
     --output_file_path "${input_file%.*}_norm_upprev.json" \
-    --language $lang \
     --num_workers $num_workers
 
 # wer
 python scripts/compute_wer.py \
     --input_file_path "${input_file%.*}_norm_upprev.json" \
     --output_file_path "${input_file%.*}_norm_upprev_wer.json" \
+    --language $lang \
     --num_workers $num_workers
 
 # filter (upper-case, wer)
