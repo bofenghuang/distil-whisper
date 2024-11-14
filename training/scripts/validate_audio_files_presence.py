@@ -42,7 +42,11 @@ def process(
     """
 
     def process_function(example):
-        p = Path(example[audio_column_name])
+        audio_fille_path = example[audio_column_name]
+        if ":" in audio_fille_path:
+            audio_fille_path = audio_fille_path.rsplit(":", 2)[0]
+
+        p = Path(audio_fille_path)
         # assert p.exists(), example
         if not p.exists():
             print(example)
