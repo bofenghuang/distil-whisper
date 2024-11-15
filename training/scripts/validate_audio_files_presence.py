@@ -4,16 +4,12 @@
 
 """Verify if entries in manifest exist."""
 
-import json
-import os
-import re
 import sys
 from pathlib import Path
 
 import fire
 import soundfile as sf
 from datasets import load_dataset
-from tqdm import tqdm
 
 
 def process(
@@ -43,20 +39,32 @@ def process(
 
     def process_function(example):
         audio_fille_path = example[audio_column_name]
+
+        # zip files
         if ":" in audio_fille_path:
             audio_fille_path = audio_fille_path.rsplit(":", 2)[0]
 
-        p = Path(audio_fille_path)
-        # assert p.exists(), example
-        if not p.exists():
-            print(example)
-            sys.exit(1)
-            return False
+            p = Path(audio_fille_path)
+            # assert p.exists(), example
+            if not p.exists() or p.stat().st_size == 0:
+                print(example)
+                sys.exit(1)
 
-        # audio_info = sf.info(example["audio_filepath"])
-        # # assert abs(audio_info.duration - example["duration"]) < 0.01, example
-        # if abs(audio_info.duration - example["duration"]) > 0.01:
-        #     return False
+        # audio files
+        else:
+            try:
+                audio_info = sf.info(audio_fille_path)
+
+                # assert abs(audio_info.duration - example["duration"]) < 0.01, example
+                if abs(audio_info.duration - example["duration"]) > 0.01:
+                    print(example)
+                    print(audio_info.duration)
+                    sys.exit(1)
+
+            except Exception as e:
+                print(str(e))
+                print(example)
+                sys.exit(1)
 
         return True
 
