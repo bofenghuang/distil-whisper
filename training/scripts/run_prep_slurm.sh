@@ -2,8 +2,10 @@
 
 # pipeline for data prepration on slurm
 
-input_file=$1
-lang=$2
+# input_file=$1
+# lang=$2
+
+lang=en
 
 # mcv
 prep_mcv() {
@@ -34,9 +36,9 @@ prep_others() {
 
 # input_file="/lustre/fsn1/projects/rech/cjc/commun/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/fr/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
 # input_file="/lustre/fsn1/projects/rech/cjc/commun/corpus/speech/nemo_manifests/gigant/african_accented_french/train/train_gigant_african_accented_french_manifest.json"
-# input_file="/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/mozilla-foundation/common_voice_17_0/en/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
+input_file="/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/mozilla-foundation/common_voice_17_0/en/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
 
-# prep_mcv $input_file
+prep_mcv $input_file
 
 input_files=(
     "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/facebook/voxpopuli/en/train/train_facebook_voxpopuli_manifest.json"
