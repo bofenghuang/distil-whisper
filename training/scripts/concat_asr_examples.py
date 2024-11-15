@@ -78,6 +78,7 @@ def main(
     is_mtedx = "multilingual-tedx" in input_file_path
     is_african_accented_french = "african_accented_french" in input_file_path
     is_peoples_speech = "peoples_speech" in input_file_path
+    is_gigaspeech = "gigaspeech" in input_file_path
 
     if is_mcv or is_african_accented_french:
         id_column_name = "audio_filepath"
@@ -87,6 +88,8 @@ def main(
         id_column_name = "audio_id"
     elif is_yodas:
         id_column_name = "utt_id"
+    elif is_gigaspeech:
+        id_column_name = "segment_id"
     else:
         raise ValueError("Need to set id_column_name")
 
@@ -150,6 +153,12 @@ def main(
     if is_peoples_speech:
         dataset = dataset.map(
             lambda x: {speaker_column_name: x["id"].split("_SLASH_", 1)[0]},
+            num_proc=num_workers,
+            desc="preprocessing...",
+        )
+    if is_gigaspeech:
+        dataset = dataset.map(
+            lambda x: {speaker_column_name: x["audio_id"]},
             num_proc=num_workers,
             desc="preprocessing...",
         )

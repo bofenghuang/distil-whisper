@@ -36,16 +36,18 @@ prep_others() {
 
 # input_file="/lustre/fsn1/projects/rech/cjc/commun/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/fr/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
 # input_file="/lustre/fsn1/projects/rech/cjc/commun/corpus/speech/nemo_manifests/gigant/african_accented_french/train/train_gigant_african_accented_french_manifest.json"
-input_file="/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/mozilla-foundation/common_voice_17_0/en/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
+# input_file="/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/mozilla-foundation/common_voice_17_0/en/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
 
-prep_mcv $input_file
+# prep_mcv $input_file
 
 input_files=(
-    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/facebook/voxpopuli/en/train/train_facebook_voxpopuli_manifest.json"
+    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/facebook/voxpopuli/en/train/train_facebook_voxpopuli_manifest.json"
     # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/MLCommons/peoples_speech/clean/train/train_MLCommons_peoples_speech_manifest.json"
     # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/MLCommons/peoples_speech/clean_sa/train/train_MLCommons_peoples_speech_manifest.json"
-    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/openslr/librispeech_asr/train.clean.100+train.clean.360+train.other.500/train.clean.100+train.clean.360+train.other.500_openslr_librispeech_asr_manifest.json"
-    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en000/train/train_espnet_yodas_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/MLCommons/peoples_speech/default/train/train_MLCommons_peoples_speech_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/openslr/librispeech_asr/train/train_openslr_librispeech_asr_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/speechcolab/gigaspeech/l/train/train_speechcolab_gigaspeech_manifest.json"
+    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en000/train/train_espnet_yodas_manifest.json"
     # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en001/train/train_espnet_yodas_manifest.json"
     # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en002/train/train_espnet_yodas_manifest.json"
     # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en003/train/train_espnet_yodas_manifest.json"
