@@ -44,7 +44,7 @@ export HF_DATASETS_OFFLINE="1"
 export HF_EVALUATE_OFFLINE="1"
 
 # CPUs
-num_workers=320
+num_workers=64
 
 # input_file="/projects/bhuang/corpus/speech/nemo_manifests/facebook/multilingual_librispeech/french/train/train_facebook_multilingual_librispeech_manifest.json"
 # input_file="/projects/bhuang/corpus/speech/nemo_manifests/facebook/voxpopuli/fr/train/train_facebook_voxpopuli_manifest.json"

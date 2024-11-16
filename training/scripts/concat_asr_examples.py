@@ -79,10 +79,11 @@ def main(
     is_african_accented_french = "african_accented_french" in input_file_path
     is_peoples_speech = "peoples_speech" in input_file_path
     is_gigaspeech = "gigaspeech" in input_file_path
+    is_tedlium = "tedlium" in input_file_path
 
     if is_mcv or is_african_accented_french:
         id_column_name = "audio_filepath"
-    elif is_ls or is_mtedx or is_peoples_speech:
+    elif is_ls or is_mtedx or is_peoples_speech or is_tedlium:
         id_column_name = "id"
     elif is_voxpopuli:
         id_column_name = "audio_id"
@@ -132,36 +133,40 @@ def main(
             num_proc=num_workers,
             desc="preprocessing...",
         )
-    if is_ls:
+    elif is_ls:
         dataset = dataset.map(
             lambda x: {speaker_column_name: str(x[speaker_column_name]) + "-" + str(x["chapter_id"])},
             num_proc=num_workers,
             desc="preprocessing...",
         )
-    if is_yodas:
+    elif is_yodas:
         dataset = dataset.map(
             lambda x: {speaker_column_name: x["utt_id"].lstrip("-").split("-", 1)[0]},
             num_proc=num_workers,
             desc="preprocessing...",
         )
-    if is_african_accented_french:
+    elif is_african_accented_french:
         dataset = dataset.map(
             lambda x: {speaker_column_name: re.split(r"[-_]", Path(x[audio_column_name]).stem[::-1], maxsplit=1)[-1][::-1]},
             num_proc=num_workers,
             desc="preprocessing...",
         )
-    if is_peoples_speech:
+    elif is_peoples_speech:
         dataset = dataset.map(
             lambda x: {speaker_column_name: x["id"].split("_SLASH_", 1)[0]},
             num_proc=num_workers,
             desc="preprocessing...",
         )
-    if is_gigaspeech:
+    elif is_gigaspeech:
         dataset = dataset.map(
             lambda x: {speaker_column_name: x["audio_id"]},
             num_proc=num_workers,
             desc="preprocessing...",
         )
+    elif is_voxpopuli or is_mtedx or is_tedlium:
+        ...
+    else:
+        raise ValueError("Need to set speaker_column_name")
 
     # sort
     dataset = dataset.sort(id_column_name)
