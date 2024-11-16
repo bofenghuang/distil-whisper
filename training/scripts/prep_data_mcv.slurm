@@ -6,7 +6,7 @@
 #SBATCH --error=logs/%x/%j.err       # error file (%j = job ID)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1          # crucial - only 1 task per dist per node!
-#SBATCH --cpus-per-task=40           # number of cores per tasks
+#SBATCH --cpus-per-task=16           # number of cores per tasks
 #SBATCH --time 20:00:00              # maximum execution time (HH:MM:SS)
 #SBATCH --qos=qos_cpu-t3             # QoS
 #SBATCH --hint=nomultithread         # we get physical cores not logical
@@ -44,7 +44,7 @@ export HF_DATASETS_OFFLINE="1"
 export HF_EVALUATE_OFFLINE="1"
 
 # CPUs
-num_workers=80
+num_workers=64
 
 # input_file="/gpfsscratch/rech/cjc/commun/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/it/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
 
