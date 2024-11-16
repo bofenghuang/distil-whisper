@@ -44,15 +44,24 @@ input_files=(
     # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/facebook/voxpopuli/en/train/train_facebook_voxpopuli_manifest.json"
     # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/MLCommons/peoples_speech/clean/train/train_MLCommons_peoples_speech_manifest.json"
     # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/MLCommons/peoples_speech/clean_sa/train/train_MLCommons_peoples_speech_manifest.json"
-    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/MLCommons/peoples_speech/default/train/train_MLCommons_peoples_speech_manifest.json"
-    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/openslr/librispeech_asr/train/train_openslr_librispeech_asr_manifest.json"
-    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/speechcolab/gigaspeech/l/train/train_speechcolab_gigaspeech_manifest.json"
-    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en000/train/train_espnet_yodas_manifest.json"
-    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en001/train/train_espnet_yodas_manifest.json"
-    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en002/train/train_espnet_yodas_manifest.json"
-    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en003/train/train_espnet_yodas_manifest.json"
-    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en004/train/train_espnet_yodas_manifest.json"
-    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en005/train/train_espnet_yodas_manifest.json"
+    # 2
+    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/MLCommons/peoples_speech/default/train/train_MLCommons_peoples_speech_manifest.json"
+    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/openslr/librispeech_asr/train/train_openslr_librispeech_asr_manifest.json"
+    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/speechcolab/gigaspeech/l/train/train_speechcolab_gigaspeech_manifest.json"
+    # 3
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/LIUM/tedlium/release3/train/train_LIUM_tedlium_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en000/train/train_espnet_yodas_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en001/train/train_espnet_yodas_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en002/train/train_espnet_yodas_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en003/train/train_espnet_yodas_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en004/train/train_espnet_yodas_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en005/train/train_espnet_yodas_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en100/train/train_espnet_yodas_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en101/train/train_espnet_yodas_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en102/train/train_espnet_yodas_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en103/train/train_espnet_yodas_manifest.json"
+    # "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en104/train/train_espnet_yodas_manifest.json"
+    "/lustre/fsn1/projects/rech/gkb/commun/corpus/speech/stt-pseudo-labeled-whisper-large-v3-multilingual/espnet/yodas/en105/train/train_espnet_yodas_manifest.json"
 )
 
 # Iterate over the array and apply the function to each element
