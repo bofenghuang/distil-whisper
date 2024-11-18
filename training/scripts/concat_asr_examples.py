@@ -80,10 +80,11 @@ def main(
     is_peoples_speech = "peoples_speech" in input_file_path
     is_gigaspeech = "gigaspeech" in input_file_path
     is_tedlium = "tedlium" in input_file_path
+    is_ami = "ami" in input_file_path
 
     if is_mcv or is_african_accented_french:
         id_column_name = "audio_filepath"
-    elif is_ls or is_mtedx or is_peoples_speech or is_tedlium:
+    elif is_ls or is_mtedx or is_peoples_speech or is_tedlium or is_ami:
         id_column_name = "id"
     elif is_voxpopuli:
         id_column_name = "audio_id"
@@ -160,6 +161,13 @@ def main(
     elif is_gigaspeech:
         dataset = dataset.map(
             lambda x: {speaker_column_name: x["audio_id"]},
+            num_proc=num_workers,
+            desc="preprocessing...",
+        )
+    elif is_ami:
+        # for ami we concatenate segments of different speakers
+        dataset = dataset.map(
+            lambda x: {speaker_column_name: x["meeting_id"], "original_speaker_id": x["speaker_id"]},
             num_proc=num_workers,
             desc="preprocessing...",
         )
