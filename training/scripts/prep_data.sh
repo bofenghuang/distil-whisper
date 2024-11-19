@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copyright 2023  Bofeng Huang
 
-# prep data for mcv
+# prep data
 
 set -e
 
@@ -46,6 +46,28 @@ timestamp=$(date +"%Y%m%d_%H%M%S")
 log_dir="$log_root/run_$timestamp"
 mkdir -p "$log_dir"
 
+# concat
+output_file="${input_file/\/train\//\/train_concatenated\/}"
+# output_file="${input_file/\/projects\//\/rd_storage2\/}"
+
+if [ $stage -le 0 ]; then
+    echo -e "\n\nConcatenating examples"
+    python scripts/concat_asr_examples.py \
+        --input_file_path $input_file \
+        --output_file_path $output_file \
+        --preprocessing_batch_size 1000 \
+        --num_workers $num_workers
+
+    # tmp: remove unconcatenated audio files
+    if [ "$lang" != "fr" ]; then
+        echo -e "\n\nRemoving original unconcatenated audio files"
+        find $input_dir -mindepth 1 -type f -name "*.wav" -delete
+        find $input_dir -mindepth 1 -type d -empty -delete
+    fi
+fi
+
+input_file="${output_file}"
+
 # split input file
 tmp_dir=${input_file%/*}/splitted_files
 
@@ -55,7 +77,7 @@ if [ $stage -le 1 ]; then
     split -n l/$n_splits --numeric-suffixes=0 --additional-suffix=.json "$input_file" "${tmp_dir}/${filename}_"
 fi
 
-# launch inference in parallel
+# launch inference in prallel
 if [ $stage -le 2 ]; then
     echo -e "\n\nRunning inference"
     for ((i=0; i<n_splits; i++)); do
@@ -117,55 +139,51 @@ if [ $stage -le 4 ]; then
         --num_workers $num_workers
 fi
 
+# update prev_whisper_transcript
+if [ $stage -le 5 ]; then
+    echo -e "\n\nUpdate prev"
+    python scripts/update_prev_whisper_transcript.py \
+        --input_file_path "${input_file%.*}_norm.json" \
+        --output_file_path "${input_file%.*}_norm_upprev.json" \
+        --num_workers $num_workers
+fi
 
 # wer
-if [ $stage -le 5 ]; then
+if [ $stage -le 6 ]; then
     echo -e "\n\nComputing WER"
     python scripts/compute_wer.py \
-        --input_file_path "${input_file%.*}_norm.json" \
-        --output_file_path "${input_file%.*}_norm_wer.json" \
+        --input_file_path "${input_file%.*}_norm_upprev.json" \
+        --output_file_path "${input_file%.*}_norm_upprev_wer.json" \
         --language $lang \
         --num_workers $num_workers
 fi
 
 # filter (upper-case, wer)
-if [ $stage -le 6 ]; then
+if [ $stage -le 7 ]; then
     echo -e "\n\nFiltering examples"
     python scripts/filter_whisper_transcript.py \
-        --input_file_path "${input_file%.*}_norm_wer.json" \
-        --output_file_path "${input_file%.*}_norm_wer_filt.json" \
+        --input_file_path "${input_file%.*}_norm_upprev_wer.json" \
+        --output_file_path "${input_file%.*}_norm_upprev_wer_filt.json" \
         --wer_threshold 20 \
         --num_workers $num_workers
 fi
 
-input_file="${input_file%.*}_norm_wer_filt.json"
-output_file="${input_file/\/train\//\/train_concatenated\/}"
-
-# concat
-if [ $stage -le 7 ]; then
-    echo -e "\n\nConcatenating examples"
-    python scripts/concat_asr_examples.py \
-        --input_file_path $input_file \
-        --output_file_path $output_file \
-        --preprocessing_batch_size 1000 \
-        --num_workers $num_workers
-
-    # tmp: remove unconcatenated audio files
-    if [ "$lang" != "fr" ]; then
-        echo -e "\n\nRemoving original unconcatenated audio files"
-        find $input_dir -mindepth 1 -type f -name "*.wav" -delete
-        find $input_dir -mindepth 1 -type d -empty -delete
-    fi
-fi
-
-# wer
+# deleting audio files
 if [ $stage -le 8 ]; then
-    echo -e "\n\nRecomputing WER"
-    python scripts/compute_wer.py \
-        --input_file_path "$output_file" \
-        --output_file_path "${output_file%.*}_wer.json" \
-        --language $lang \
+    echo -e "\n\nCleaning up audio files"
+    python scripts/cleanup_audio_files.py \
+        --input_file_a "${input_file}" \
+        --input_file_b "${input_file%.*}_norm_upprev_wer_filt.json" \
         --num_workers $num_workers
 fi
+
+# zipping audio files
+# if [ $stage -le 9 ]; then
+#     echo -e "\n\nZipping audio files"
+#     python scripts/zip_audio_files.py \
+#         --input_file_path "${input_file%.*}_norm_upprev_wer_filt.json" \
+#         --output_file_path "${input_file%.*}_norm_upprev_wer_filt_zipped.json" \
+#         --num_workers $num_workers
+# fi
 
 echo "END TIME: $(date)"

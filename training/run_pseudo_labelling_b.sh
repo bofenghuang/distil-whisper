@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Copyright 2023  Bofeng Huang
 
-# Run pseudo labelling on A100s
+# Run pseudo labelling
 
-set -x -e
+set -e
 
 echo "START TIME: $(date)"
 
@@ -11,7 +11,7 @@ echo "START TIME: $(date)"
 # export OMP_NUM_THREADS="1"
 
 # cuda
-export CUDA_VISIBLE_DEVICES="4,5,6,7"
+# export CUDA_VISIBLE_DEVICES="4,5,6,7"
 
 # hf
 export HF_HOME="/projects/bhuang/.cache/huggingface"
@@ -23,20 +23,25 @@ export TOKENIZERS_PARALLELISM="false"
 # export HF_EVALUATE_OFFLINE="1"
 
 # Set your number of GPUs here
-num_gpus=4
-# CPUs
-num_workers=64
+# num_gpus=4
 
 #   --dtype "bfloat16" \
 # --max_label_length 128 \
     # --max_samples_per_split 1024 \
 
-CMD="accelerate launch --multi_gpu --num_processes=$num_gpus"
+# CMD="accelerate launch --multi_gpu --num_processes=$num_gpus"
+CMD="accelerate launch"
 
-model_name_or_path="openai/whisper-large-v3"
+# model_name_or_path="openai/whisper-large-v3"
 # model_name_or_path="bofenghuang/whisper-large-v3-french"
+# model_name_or_path="/gpfsdswork/projects/rech/cjc/commun/models/whisper/whisper-large-v3"
+model_name_or_path="/rd_storage2/bhuang/models/asr/pretrained/openai/whisper-large-v3"
 
-input_file="/projects/bhuang/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/fr/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
+# input_file="/projects/bhuang/corpus/speech/nemo_manifests/mozilla-foundation/common_voice_17_0/fr/train/train_mozilla-foundation_common_voice_17_0_manifest.json"
+
+# take arg
+input_file=$1
+lang="${2:-en}"
 
 # tmp_model_id="$(echo "${model_name_or_path}" | sed -e "s/-/\_/g" -e "s/[ |=/]/-/g")"
 # outdir="./outputs/data/$tmp_model_id"
@@ -45,7 +50,8 @@ input_file="/projects/bhuang/corpus/speech/nemo_manifests/mozilla-foundation/com
 tmp_model_id="$(echo "${model_name_or_path##*/}" | sed -e "s/[ |=/-]/_/g")"
 output_file="${input_file%.*}_${tmp_model_id}.json"
 
-# pred
+# got some bugs using max_label_length=448
+
 $CMD run_pseudo_labelling_b.py \
     --model_name_or_path "$model_name_or_path" \
     --input_data_file "$input_file" \
@@ -55,42 +61,15 @@ $CMD run_pseudo_labelling_b.py \
     --id_column_name "id" \
     --duration_column_name "duration" \
     --sort_by_duration True \
-    --preprocessing_num_workers $num_workers \
-    --pad_to_multiple_of 64 \
+    --preprocessing_num_workers 64 \
     --dataloader_num_workers 8 \
     --dtype "float16" \
-    --attn_implementation "flash_attention_2" \
+    --attn_implementation "sdpa" \
     --per_device_eval_batch_size 128 \
-    --language "fr" \
+    --language "$lang" \
     --task "transcribe" \
     --return_timestamps \
-    --max_label_length 448 \
+    --max_label_length 446 \
     --generation_num_beams 1
-
-exit 0;
-
-# normalize (timestamps)
-python scripts/norm_whisper_transcript.py \
-    --input_file_path "$output_file" \
-    --output_file_path "${output_file%.*}_norm.json" \
-    --num_workers $num_workers
-
-# update prev_whisper_transcript
-python scripts/update_prev_whisper_transcript.py \
-    --input_file_path "${output_file%.*}_norm.json" \
-    --output_file_path "${output_file%.*}_norm_upprev.json" \
-    --num_workers $num_workers
-
-# wer
-python scripts/compute_wer.py \
-    --input_file_path "${output_file%.*}_norm_upprev.json" \
-    --output_file_path "${output_file%.*}_norm_upprev_wer.json" \
-    --num_workers $num_workers
-
-# filter (upper-case)
-python scripts/filter_whisper_transcript.py \
-    --input_file_path "${output_file%.*}_norm_upprev_wer.json" \
-    --output_file_path "${output_file%.*}_norm_upprev_wer_filt.json" \
-    --num_workers $num_workers
 
 echo "END TIME: $(date)"

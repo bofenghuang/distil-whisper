@@ -172,17 +172,21 @@ class FrenchNumber2TextNormalizer:
     def __call__(self, s: str):
         s = self.preprocess(s)
 
-        length_diff = 0
-        # NB: for two digit separated alphanum
-        # for match in re.finditer(r"[1-9][0-9]*|(?:(?<=[^0-9])|(?<=^))0", s):
-        # for match in re.finditer(r"\d+", s):
-        for match in re.finditer(r"\b\d+\b", s):
-            num_word = num2words(match.group(), lang=self.lang, to=self.converter)
-            start, end = match.start() + length_diff, match.end() + length_diff
-            s = f"{s[:start]} {num_word} {s[end:]}"
-            # +2 espaces
-            length_diff += len(num_word) - (end - start) + 2
-        return s
+        try:
+            length_diff = 0
+            # NB: for two digit separated alphanum
+            # for match in re.finditer(r"[1-9][0-9]*|(?:(?<=[^0-9])|(?<=^))0", s):
+            # for match in re.finditer(r"\d+", s):
+            for match in re.finditer(r"\b\d+\b", s):
+                num_word = num2words(match.group(), lang=self.lang, to=self.converter)
+                start, end = match.start() + length_diff, match.end() + length_diff
+                s = f"{s[:start]} {num_word} {s[end:]}"
+                # +2 espaces
+                length_diff += len(num_word) - (end - start) + 2
+        except Exception as e:
+            print(f"Failed to convert num2words for `{s}` with the following error:\n\n{str(e)}")
+        finally:
+            return s
 
 
 class FrenchText2NumberNormalizer:
