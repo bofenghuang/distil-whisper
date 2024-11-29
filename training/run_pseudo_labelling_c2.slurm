@@ -4,16 +4,27 @@
 #SBATCH --job-name=pseudo-labelling
 #SBATCH --output=logs/%x/%j.out      # output file (%j = job ID)
 #SBATCH --error=logs/%x/%j.err       # error file (%j = job ID)
+
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1          # crucial - only 1 task per dist per node!
-#SBATCH --cpus-per-task=3            # number of cores per tasks
-#SBATCH --gres=gpu:1                 # reserve 8 GPUs per node
+#SBATCH --cpus-per-task=24           # number of cores per tasks
+#SBATCH --gres=gpu:1                 # reserve number of GPUs per node
 #SBATCH --time=20:00:00              # maximum execution time (HH:MM:SS)
-#SBATCH --qos=qos_gpu-t3             # QoS
 #SBATCH --hint=nomultithread         # we get physical cores not logical
-#SBATCH --partition=gpu_p2
-#SBATCH --account=cjc@v100           # A100 accounting
+#SBATCH --constraint=h100
+#SBATCH --account=gkb@h100           # account to use, with xyz the 3 letter code of your project
 #SBATCH --array=1-8
+
+##SBATCH --nodes=1
+##SBATCH --ntasks-per-node=1          # crucial - only 1 task per dist per node!
+##SBATCH --cpus-per-task=3            # number of cores per tasks
+##SBATCH --gres=gpu:1                 # reserve 8 GPUs per node
+##SBATCH --time=20:00:00              # maximum execution time (HH:MM:SS)
+##SBATCH --qos=qos_gpu-t3             # QoS
+##SBATCH --hint=nomultithread         # we get physical cores not logical
+##SBATCH --partition=gpu_p2
+##SBATCH --account=cjc@v100           # A100 accounting
+##SBATCH --array=1-8
 
 # Run pseudo labelling on V100s w/ job array
 # http://www.idris.fr/eng/jean-zay/cpu/jean-zay-cpu-exec_jobarray-eng.html
@@ -24,6 +35,7 @@ echo "START TIME: $(date)"
 
 # set up environment
 module purge
+module load arch/h100
 module load git-lfs
 # module load unrar
 module load anaconda-py3/2024.06
@@ -85,7 +97,9 @@ tmp_dir=${input_file%/*}/splitted_files
 filename=${input_file##*/}
 filename=${filename%.*}
 # append SLURM_ARRAY_TASK_ID
-input_file="${tmp_dir}/${filename}_0${SLURM_ARRAY_TASK_ID}.json"
+#input_file="${tmp_dir}/${filename}_0${SLURM_ARRAY_TASK_ID}.json"
+input_file="${tmp_dir}/${filename}_$(printf "%02d" ${SLURM_ARRAY_TASK_ID}).json"
+
 
 # infer args
 # lang="it"
@@ -110,7 +124,7 @@ $CMD run_pseudo_labelling_b.py \
     --id_column_name "id" \
     --duration_column_name "duration" \
     --sort_by_duration True \
-    --preprocessing_num_workers 6 \
+    --preprocessing_num_workers 1 \
     --dataloader_num_workers 6 \
     --dtype "float16" \
     --attn_implementation "sdpa" \

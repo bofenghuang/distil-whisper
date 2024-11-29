@@ -20,8 +20,6 @@ def write_dataset_to_json(dataset, output_file_path, mode="w", encoding="utf-8",
         for _, sample in enumerate(tqdm(ds_iter, desc="Writing to json", total=len(dataset), unit=" samples")):
             fo.write(f"{json.dumps(sample, default=default, ensure_ascii=ensure_ascii)}\n")
 
-    print(f"Saved manifest into {output_file_path}")
-
 
 def main(
     input_file_path: str,

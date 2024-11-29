@@ -7,8 +7,7 @@
 
 # take arg
 input_file=$1
-
-N=8
+N=${2:-8}
 
 tmp_dir=${input_file%/*}/splitted_files
 

@@ -27,6 +27,9 @@ def main(input_file_path: str):
     print("Raw dataset")
     _print_ds_info(df)
 
+    # line = "-".join(input_file_path.rsplit("/", 4)[-4: -2])
+    # line += f',{df["duration"].sum() / 3600}'
+
     # wer_cutoffs = list(range(0, 35, 5))
     wer_cutoffs = [20, 10, 5, 0]
     for wer_cutoff in wer_cutoffs:
@@ -34,6 +37,11 @@ def main(input_file_path: str):
         print(f"wer_cutoff: {wer_cutoff}")
         _print_ds_info(df_)
 
+    #     line += f',{df_["duration"].sum() / 3600}'
+
+    # output_file = "/lustre/fswork/projects/rech/gkb/uvl55hq/distil-whisper/training/tmp_dur.csv"
+    # with open(output_file, "a") as f:
+    #     f.write(line + "\n")
 
 if __name__ == "__main__":
     fire.Fire(main)

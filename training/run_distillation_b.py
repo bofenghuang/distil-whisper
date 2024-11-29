@@ -609,7 +609,8 @@ class SpeechDataset(Dataset):
         if self.is_train and sample[self.condition_on_prev_column_name]:
             # check whether to condition on previous text - we do this with probability condition_on_prev_probability
             condition_on_prev = bool(np.random.binomial(1, self.condition_on_prev_probability))
-            if condition_on_prev:
+            # also ensure prev_text is not empty
+            if condition_on_prev and sample[self.prev_text_column_name]:
                 # don't return the standard task tokens for prompt_ids
                 prompt_ids = self.processor.tokenizer(sample[self.prev_text_column_name], add_special_tokens=False).input_ids
                 # strip timestamp tokens from prompt tokens when not predicting timestamps
@@ -1229,7 +1230,10 @@ def main():
             raw_datasets["eval"] = load_dataset(ext, data_files=validation_file, split="train")
         else:
             for validation_file in validation_files:
-                pretty_name = Path(validation_file).stem
+                # pretty_name = Path(validation_file).stem
+                # for multilingual
+                validation_path = Path(validation_file)
+                pretty_name = re.sub(r"_manifest$", "", validation_path.stem) + "_" + validation_path.parent.parent.name
                 all_eval_splits.append(pretty_name)
                 ext = validation_file.rsplit(".", 1)[-1]
                 raw_datasets[pretty_name] = load_dataset(ext, data_files=validation_file, split="train")

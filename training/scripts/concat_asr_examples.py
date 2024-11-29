@@ -7,6 +7,7 @@
 import hashlib
 import json
 import os
+import random
 import re
 import wave
 from pathlib import Path
@@ -16,6 +17,7 @@ import fire
 import numpy as np
 from datasets import load_dataset
 from datasets.arrow_dataset import table_iter
+
 # from transformers import AutoTokenizer
 from tqdm import tqdm
 
@@ -199,11 +201,13 @@ def main(
 
         def _concat_and_save_wav_files(input_files, speaker_name):
             output_dir = input_files[0]
+            output_dir = output_dir.rsplit("/", 1)[0]
             output_dir = output_dir.replace("/train/", "/train_concatenated/")
             # output_dir = output_dir.replace("/projects/", "/rd_storage2/")
             # output_dir = output_dir.replace("/train.clean.100+train.clean.360+train.other.500/", "/train_concatenated/")
             # output_dir = output_dir.replace("/train/", "/train_concatenated_10/")
-            output_dir = output_dir.rsplit("/", 1)[0]
+            # tmp: dump randomly into subfolders to not exceed upload limit
+            # output_dir = output_dir + "/" + f"{random.choice(range(5000)):08d}"
             output_file_name = md5("+".join([x.rsplit("/", 1)[1].rsplit(".", 1)[0] for x in input_files]))
             output_file_name = speaker_name + "-" + output_file_name + ".wav"
             output_file = output_dir + "/" + output_file_name

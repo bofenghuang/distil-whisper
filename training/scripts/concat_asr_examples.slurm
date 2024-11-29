@@ -64,6 +64,8 @@ output_file="${input_file/\/train\//\/train_concatenated\/}"
 # output_dir="${output_file%/*}"
 # final_output_file="${output_file%.*}_zipped.json"
 
+# for code-switching data, first concat monolingual into 10s
+# --max_duration 10 \
 python scripts/concat_asr_examples.py \
     --input_file_path $input_file \
     --output_file_path $output_file \
