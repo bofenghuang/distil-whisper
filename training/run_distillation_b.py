@@ -286,6 +286,10 @@ class DataTrainingArguments:
         default="_language",
         metadata={"help": ""},
     )
+    task_column_name: str = field(
+        default="_task",
+        metadata={"help": ""},
+    )
     sort_by_duration: bool = field(
         default=False,
         metadata={"help": ""},
@@ -491,6 +495,7 @@ class SpeechDataset(Dataset):
         prev_text_column_name: str,
         condition_on_prev_column_name: str,
         language_column_name: str,
+        task_column_name: str,
         # language: str,
         task: str,
         timestamp_probability: float,
@@ -509,6 +514,7 @@ class SpeechDataset(Dataset):
         self.prev_text_column_name = prev_text_column_name
         self.condition_on_prev_column_name = condition_on_prev_column_name
         self.language_column_name = language_column_name
+        self.task_column_name = task_column_name
         self.sort_by_duration = sort_by_duration
 
         # self.language = language
@@ -596,8 +602,14 @@ class SpeechDataset(Dataset):
         #     language=self.language, task=self.task, predict_timestamps=predict_timestamps
         # )
         # set language by sample
+        # self.processor.tokenizer.set_prefix_tokens(
+        #     language=sample[self.language_column_name], task=self.task, predict_timestamps=predict_timestamps
+        # )
+        # set language/task by sample
         self.processor.tokenizer.set_prefix_tokens(
-            language=sample[self.language_column_name], task=self.task, predict_timestamps=predict_timestamps
+            language=sample[self.language_column_name],
+            task=sample.get(self.task_column_name, "transcribe"),
+            predict_timestamps=predict_timestamps,
         )
 
         # encode target text to label ids
@@ -1741,6 +1753,7 @@ def main():
             prev_text_column_name=data_args.prev_text_column_name,
             condition_on_prev_column_name=data_args.condition_on_prev_column_name,
             language_column_name=data_args.language_column_name,
+            task_column_name=data_args.task_column_name,
             # language=data_args.language,
             task=data_args.task,
             timestamp_probability=timestamp_probability,
