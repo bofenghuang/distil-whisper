@@ -72,6 +72,8 @@ class DataTrainingArguments:
             "multiple datasets by separating dataset hours by a '+' symbol."
         },
     )
+    dataset_file: str = field(default=None, metadata={"help": ""})
+    output_file: str = field(default=None, metadata={"help": ""})
     model_name_or_path: str = field(
         default=None,
         metadata={"help": "The name of the model to use (via the transformers library). "},
@@ -203,7 +205,7 @@ class DataTrainingArguments:
         metadata={"help": "The name of the dataset column containing the audio data. Defaults to 'audio'"},
     )
     text_column_name: str = field(
-        default=None,
+        default="text",
         metadata={"help": "The name of the dataset column containing the text data. Defaults to `text`."},
     )
     generation_max_length: int = field(
@@ -306,105 +308,113 @@ class DataTrainingArguments:
     )
 
 
-
-def write_metric(summary_writer, eval_metrics, step, prefix="eval"):
-    for metric_name, value in eval_metrics.items():
-        summary_writer.scalar(f"{prefix}/{metric_name}", value, step)
-
-
-def write_wandb_metric(wandb_logger, metrics, prefix):
-    log_metrics = {}
-    for k, v in metrics.items():
-        log_metrics[f"{prefix}/{k}"] = v
-    wandb_logger.log(log_metrics)
+# def write_dataset_to_json(dataset, output_file_path, mode="w", encoding="utf-8", default=str, ensure_ascii=False):
+#     ds_iter = iter(dataset)
+#     with open(output_file_path, mode, encoding=encoding) as fo:
+#         for sample in tqdm(ds_iter, desc="Writing to json", total=dataset.num_rows, unit=" samples"):
+#             # only save serializable types
+#             sample = {k: v for k, v in sample.items() if isinstance(v, (str, int, float))}
+#             fo.write(f"{json.dumps(sample, default=default, ensure_ascii=ensure_ascii)}\n")
 
 
-def write_wandb_pred(
-    wandb_logger,
-    pred_str,
-    label_str,
-    norm_pred_str,
-    norm_label_str,
-    wer_per_sample,
-    prefix="eval",
-):
-    columns = ["WER", "Target", "Pred", "Norm Target", "Norm Pred"]
-    # convert str data to a wandb compatible format
-    str_data = [
-        [wer_per_sample[i], label_str[i], pred_str[i], norm_label_str[i], norm_pred_str[i]]
-        for i in range(len(pred_str))
-    ]
-
-    # log as a table with the appropriate headers
-    wandb_logger.log(
-        {f"{prefix}/predictions": wandb_logger.Table(columns=columns, data=str_data)},
-    )
+# def write_metric(summary_writer, eval_metrics, step, prefix="eval"):
+#     for metric_name, value in eval_metrics.items():
+#         summary_writer.scalar(f"{prefix}/{metric_name}", value, step)
 
 
-def convert_dataset_str_to_list(
-    dataset_names, dataset_config_names, splits=None, text_column_names=None, dataset_hours=None, default_split="train"
-):
-    if isinstance(dataset_names, str):
-        dataset_names = dataset_names.split("+")
+# def write_wandb_metric(wandb_logger, metrics, prefix):
+#     log_metrics = {}
+#     for k, v in metrics.items():
+#         log_metrics[f"{prefix}/{k}"] = v
+#     wandb_logger.log(log_metrics)
 
-        # we assume that all the datasets we're using derive from the distil-whisper org on the Hub - prepend the org name if necessary
-        for i in range(len(dataset_names)):
-            ds_name = dataset_names[i]
-            dataset_names[i] = f"distil-whisper/{ds_name}" if "/" not in ds_name else ds_name
 
-        dataset_config_names = dataset_config_names.split("+") if dataset_config_names is not None else None
-        splits = splits.split("+") if splits is not None else None
-        text_column_names = text_column_names.split("+") if text_column_names is not None else None
-        dataset_hours = dataset_hours.split("+") if dataset_hours is not None else None
+# def write_wandb_pred(
+#     wandb_logger,
+#     pred_str,
+#     label_str,
+#     norm_pred_str,
+#     norm_label_str,
+#     wer_per_sample,
+#     prefix="eval",
+# ):
+#     columns = ["WER", "Target", "Pred", "Norm Target", "Norm Pred"]
+#     # convert str data to a wandb compatible format
+#     str_data = [
+#         [wer_per_sample[i], label_str[i], pred_str[i], norm_label_str[i], norm_pred_str[i]]
+#         for i in range(len(pred_str))
+#     ]
 
-    # basic checks to ensure we've got the right number of datasets/configs/splits/columns/probs
-    if dataset_config_names is not None and len(dataset_names) != len(dataset_config_names):
-        raise ValueError(
-            f"Ensure one config is passed for each dataset, got {len(dataset_names)} datasets and"
-            f" {len(dataset_config_names)} configs."
-        )
+#     # log as a table with the appropriate headers
+#     wandb_logger.log(
+#         {f"{prefix}/predictions": wandb_logger.Table(columns=columns, data=str_data)},
+#     )
 
-    if splits is not None and len(splits) != len(dataset_names):
-        raise ValueError(
-            f"Ensure one split is passed for each dataset, got {len(dataset_names)} datasets and {len(splits)} splits."
-        )
 
-    if text_column_names is not None and len(text_column_names) != len(dataset_names):
-        raise ValueError(
-            f"Ensure one text column name is passed for each dataset, got {len(dataset_names)} datasets and"
-            f" {len(text_column_names)} text column names."
-        )
+# def convert_dataset_str_to_list(
+#     dataset_names, dataset_config_names, splits=None, text_column_names=None, dataset_hours=None, default_split="train"
+# ):
+#     if isinstance(dataset_names, str):
+#         dataset_names = dataset_names.split("+")
 
-    if dataset_hours is not None:
-        if len(dataset_hours) != len(dataset_names):
-            raise ValueError(
-                f"Ensure one probability is passed for each dataset, got {len(dataset_names)} datasets and "
-                f"{len(dataset_hours)} hours."
-            )
-        dataset_hours = [float(ds_hours) for ds_hours in dataset_hours]
-    else:
-        dataset_hours = [None] * len(dataset_names)
+#         # we assume that all the datasets we're using derive from the distil-whisper org on the Hub - prepend the org name if necessary
+#         for i in range(len(dataset_names)):
+#             ds_name = dataset_names[i]
+#             dataset_names[i] = f"distil-whisper/{ds_name}" if "/" not in ds_name else ds_name
 
-    dataset_config_names = (
-        dataset_config_names if dataset_config_names is not None else ["default" for _ in range(len(dataset_names))]
-    )
-    text_column_names = (
-        text_column_names if text_column_names is not None else ["text" for _ in range(len(dataset_names))]
-    )
-    splits = splits if splits is not None else [default_split for _ in range(len(dataset_names))]
+#         dataset_config_names = dataset_config_names.split("+") if dataset_config_names is not None else None
+#         splits = splits.split("+") if splits is not None else None
+#         text_column_names = text_column_names.split("+") if text_column_names is not None else None
+#         dataset_hours = dataset_hours.split("+") if dataset_hours is not None else None
 
-    dataset_names_dict = []
-    for i, ds_name in enumerate(dataset_names):
-        dataset_names_dict.append(
-            {
-                "name": ds_name,
-                "config": dataset_config_names[i],
-                "split": splits[i],
-                "text_column_name": text_column_names[i],
-                "hours": dataset_hours[i],
-            }
-        )
-    return dataset_names_dict
+#     # basic checks to ensure we've got the right number of datasets/configs/splits/columns/probs
+#     if dataset_config_names is not None and len(dataset_names) != len(dataset_config_names):
+#         raise ValueError(
+#             f"Ensure one config is passed for each dataset, got {len(dataset_names)} datasets and"
+#             f" {len(dataset_config_names)} configs."
+#         )
+
+#     if splits is not None and len(splits) != len(dataset_names):
+#         raise ValueError(
+#             f"Ensure one split is passed for each dataset, got {len(dataset_names)} datasets and {len(splits)} splits."
+#         )
+
+#     if text_column_names is not None and len(text_column_names) != len(dataset_names):
+#         raise ValueError(
+#             f"Ensure one text column name is passed for each dataset, got {len(dataset_names)} datasets and"
+#             f" {len(text_column_names)} text column names."
+#         )
+
+#     if dataset_hours is not None:
+#         if len(dataset_hours) != len(dataset_names):
+#             raise ValueError(
+#                 f"Ensure one probability is passed for each dataset, got {len(dataset_names)} datasets and "
+#                 f"{len(dataset_hours)} hours."
+#             )
+#         dataset_hours = [float(ds_hours) for ds_hours in dataset_hours]
+#     else:
+#         dataset_hours = [None] * len(dataset_names)
+
+#     dataset_config_names = (
+#         dataset_config_names if dataset_config_names is not None else ["default" for _ in range(len(dataset_names))]
+#     )
+#     text_column_names = (
+#         text_column_names if text_column_names is not None else ["text" for _ in range(len(dataset_names))]
+#     )
+#     splits = splits if splits is not None else [default_split for _ in range(len(dataset_names))]
+
+#     dataset_names_dict = []
+#     for i, ds_name in enumerate(dataset_names):
+#         dataset_names_dict.append(
+#             {
+#                 "name": ds_name,
+#                 "config": dataset_config_names[i],
+#                 "split": splits[i],
+#                 "text_column_name": text_column_names[i],
+#                 "hours": dataset_hours[i],
+#             }
+#         )
+#     return dataset_names_dict
 
 
 def language_to_id(language: str, generation_config) -> str:
@@ -459,43 +469,43 @@ def main():
     if data_args.use_pipeline and data_args.batch_size > 1:
         raise ValueError("Make sure that `batch_size` is set to 1 when `use_pipeline=True`.")
 
-    has_wandb = is_wandb_available()
-    if has_wandb:
-        import wandb
-        import wandb as wandb_logger
+    # has_wandb = is_wandb_available()
+    # if has_wandb:
+    #     import wandb
+    #     import wandb as wandb_logger
 
-        # store generation HPs for runs
-        generation_arguments = {
-            "torch_version": str(torch.__version__),
-            "transformers_version": str(transformers.__version__),
-            "attn_implementation": data_args.attn_implementation,
-            "model_name_or_path": data_args.model_name_or_path,
-            "subfolder": data_args.subfolder,
-            "assistant_model_name_or_path": data_args.assistant_model_name_or_path,
-            "seed": data_args.seed,
-            "batch_size": data_args.batch_size,
-            "num_beams": data_args.num_beams,
-            "return_timestamps": data_args.return_timestamps,
-            "condition_on_prev_tokens": data_args.condition_on_prev_tokens,
-            "temperature_fallback": data_args.temperature_fallback,
-            "logprob_threshold": data_args.logprob_threshold,
-            "no_speech_threshold": data_args.no_speech_threshold,
-            "use_pipeline": data_args.use_pipeline,
-            "chunk_length_s": data_args.chunk_length_s,
-        }
+    # store generation HPs for runs
+    generation_arguments = {
+        "torch_version": str(torch.__version__),
+        "transformers_version": str(transformers.__version__),
+        "attn_implementation": data_args.attn_implementation,
+        "model_name_or_path": data_args.model_name_or_path,
+        "subfolder": data_args.subfolder,
+        "assistant_model_name_or_path": data_args.assistant_model_name_or_path,
+        "seed": data_args.seed,
+        "batch_size": data_args.batch_size,
+        "num_beams": data_args.num_beams,
+        "return_timestamps": data_args.return_timestamps,
+        "condition_on_prev_tokens": data_args.condition_on_prev_tokens,
+        "temperature_fallback": data_args.temperature_fallback,
+        "logprob_threshold": data_args.logprob_threshold,
+        "no_speech_threshold": data_args.no_speech_threshold,
+        "use_pipeline": data_args.use_pipeline,
+        "chunk_length_s": data_args.chunk_length_s,
+    }
 
-        # Set up wandb run
-        wandb_logger.init(
-            project=data_args.wandb_project,
-            name=data_args.wandb_name,
-            job_type=data_args.wandb_job_type,
-            dir=data_args.wandb_dir,
-            save_code=data_args.save_code_to_wandb,
-            config=generation_arguments,
-        )
+    #     # Set up wandb run
+    #     wandb_logger.init(
+    #         project=data_args.wandb_project,
+    #         name=data_args.wandb_name,
+    #         job_type=data_args.wandb_job_type,
+    #         dir=data_args.wandb_dir,
+    #         save_code=data_args.save_code_to_wandb,
+    #         config=generation_arguments,
+    #     )
 
-    else:
-        raise ValueError("Wandb logging requires wandb to be installed. Run `pip install wandb` to enable.")
+    # else:
+    #     raise ValueError("Wandb logging requires wandb to be installed. Run `pip install wandb` to enable.")
 
     # 3. Load dataset
     raw_datasets = IterableDatasetDict()
@@ -503,46 +513,108 @@ def main():
     # Convert lists of dataset names/configs/splits to a dict
     # names: "librispeech_asr+gigaspeech", configs: "all+l", splits: "validation.clean+validation"
     # -> [{"name: "librispeech_asr": "config": "all", "split": "validation.clean"}, {"name: "gigaspeech": "config": "l", "split": "validation"}
-    dataset_names_dict = convert_dataset_str_to_list(
-        data_args.dataset_name,
-        data_args.dataset_config_name,
-        splits=data_args.dataset_split_name,
-        text_column_names=data_args.text_column_name,
-    )
+    # dataset_names_dict = convert_dataset_str_to_list(
+    #     data_args.dataset_name,
+    #     data_args.dataset_config_name,
+    #     splits=data_args.dataset_split_name,
+    #     text_column_names=data_args.text_column_name,
+    # )
 
     # load multiple eval sets
-    for dataset_dict in tqdm(dataset_names_dict, desc="Loading datasets..."):
-        sub_dataset = load_dataset(
-            dataset_dict["name"],
-            dataset_dict["config"],
-            split=dataset_dict["split"],
-            cache_dir=data_args.dataset_cache_dir,
+    # for dataset_dict in tqdm(dataset_names_dict, desc="Loading datasets..."):
+    #     sub_dataset = load_dataset(
+    #         dataset_dict["name"],
+    #         dataset_dict["config"],
+    #         split=dataset_dict["split"],
+    #         cache_dir=data_args.dataset_cache_dir,
+    #         streaming=data_args.streaming,
+    #         num_proc=data_args.preprocessing_num_workers,
+    #     )
+
+    #     if data_args.only_short_form:
+    #         sub_dataset = sub_dataset.filter(lambda x: len(x["audio"]["array"]) / x["audio"]["sampling_rate"] <= 30)
+
+    #     if data_args.only_long_form:
+    #         sub_dataset = sub_dataset.filter(lambda x: len(x["audio"]["array"]) / x["audio"]["sampling_rate"] > 30)
+
+    #     if dataset_dict["text_column_name"] not in list(sub_dataset.features.keys()):
+    #         raise ValueError(
+    #             f"`--text_column_name` {dataset_dict['text_column_name']} not found in the evaluation "
+    #             f"dataset {dataset_dict['name']}. Ensure `text_column_name` is set to the correct column "
+    #             f"for the target text. Should be one of {' '.join(list(sub_dataset.features.keys()))}"
+    #         )
+    #     if dataset_dict["text_column_name"] != "text":
+    #         sub_dataset = sub_dataset.rename_column(dataset_dict["text_column_name"], "text")
+    #     if not data_args.streaming:
+    #         sub_dataset = sub_dataset.to_iterable_dataset()
+
+    #     # Clean-up the dataset name for pretty logging
+    #     # ("distil-whisper/librispeech_asr", "validation.clean") -> "librispeech_asr/validation-clean"
+    #     pretty_name = f"{dataset_dict['name'].split('/')[-1]}/{dataset_dict['split'].replace('.', '-')}"
+    #     raw_datasets[pretty_name] = sub_dataset
+
+    if data_args.dataset_file is not None:
+        ext = data_args.dataset_file.rsplit(".", 1)[-1]
+        ext = "json" if ext == "jsonl" else ext
+        # ds = load_dataset(ext, data_files=data_args.dataset_file, split="train", streaming=data_args.streaming)
+        # so no need to infer type
+        dataset = load_dataset(ext, data_files=data_args.dataset_file, split="train")
+        dataset_features = dataset.features
+        dataset = dataset.to_iterable_dataset()
+
+        # tmp fix
+        dataset = dataset.map(lambda x: {f"tmp_{data_args.audio_column_name}": x[data_args.audio_column_name]})
+        # bh: https://github.com/huggingface/datasets/issues/5284
+        # _resolve_features will skip elements?!
+        # dataset = dataset._resolve_features()
+        dataset_features[f"tmp_{data_args.audio_column_name}"] = dataset_features[data_args.audio_column_name]
+        dataset = dataset.cast(dataset_features)
+
+        _get_dur = lambda x: x["duration"]
+
+    elif data_args.dataset_name is not None:
+        dataset = load_dataset(
+            path=data_args.dataset_name,
+            name=data_args.dataset_config_name,
+            split=data_args.dataset_split_name,
             streaming=data_args.streaming,
-            num_proc=data_args.preprocessing_num_workers,
+            token=True,
             trust_remote_code=True,
+            num_proc=data_args.preprocessing_num_workers,
         )
+        dataset_features = dataset.features
 
-        if data_args.only_short_form:
-            sub_dataset = sub_dataset.filter(lambda x: len(x["audio"]["array"]) / x["audio"]["sampling_rate"] <= 30)
+        _get_dur = lambda x: len(x["audio"]["array"]) / x["audio"]["sampling_rate"]
 
-        if data_args.only_long_form:
-            sub_dataset = sub_dataset.filter(lambda x: len(x["audio"]["array"]) / x["audio"]["sampling_rate"] > 30)
+    else:
+        raise ValueError("You have not specified a dataset name nor a custom local dataset file")
 
-        if dataset_dict["text_column_name"] not in list(sub_dataset.features.keys()):
-            raise ValueError(
-                f"`--text_column_name` {dataset_dict['text_column_name']} not found in the evaluation "
-                f"dataset {dataset_dict['name']}. Ensure `text_column_name` is set to the correct column "
-                f"for the target text. Should be one of {' '.join(list(sub_dataset.features.keys()))}"
-            )
-        if dataset_dict["text_column_name"] != "text":
-            sub_dataset = sub_dataset.rename_column(dataset_dict["text_column_name"], "text")
-        if not data_args.streaming:
-            sub_dataset = sub_dataset.to_iterable_dataset()
-        
-        # Clean-up the dataset name for pretty logging
-        # ("distil-whisper/librispeech_asr", "validation.clean") -> "librispeech_asr/validation-clean"
-        pretty_name = f"{dataset_dict['name'].split('/')[-1]}/{dataset_dict['split'].replace('.', '-')}"
-        raw_datasets[pretty_name] = sub_dataset
+    if data_args.text_column_name not in dataset_features:
+        raise ValueError(
+            f"`--text_column_name` {data_args.text_column_name} not found in the evaluation "
+            "dataset. Ensure `text_column_name` is set to the correct column "
+            f"for the target text. Should be one of {' '.join(dataset_features)}"
+        )
+    if data_args.text_column_name != "text":
+        dataset = dataset.rename_column(data_args.text_column_name, "text")
+
+    dataset_features = dataset.features
+
+    # fitler by duration
+    if data_args.only_short_form:
+        dataset = dataset.filter(lambda x: _get_dur(x) <= 30)
+
+    if data_args.only_long_form:
+        dataset = dataset.filter(lambda x: _get_dur(x) > 30)
+
+    # todo: after every single map/filter, dataset loses its features and cannot cast to Audio
+    dataset = dataset.cast(dataset_features)
+
+    # convert to iterable dataset to extract feat on-the-fly
+    if not data_args.streaming:
+        dataset = dataset.to_iterable_dataset()
+
+    raw_datasets["test"] = dataset
 
     # 5. Load pretrained model, tokenizer, and feature extractor
     processor = WhisperProcessor.from_pretrained(
@@ -635,6 +707,7 @@ def main():
                 return_attention_mask=True,
             )
             if inputs.input_features.shape[-1] < 3000:
+                # bh: truncate and pad to max_length by default
                 inputs = processor.feature_extractor(
                     audio,
                     sampling_rate=sampling_rate,
@@ -647,19 +720,19 @@ def main():
             batch["input_features"] = audio
 
         # process audio length
-        batch["length_in_s"] = [len(sample) / sampling_rate for sample in audio]
+        # batch["length_in_s"] = [len(sample) / sampling_rate for sample in audio]
         # process targets
-        batch["reference"] = batch["text"]
+        # batch["reference"] = batch["text"]
         return batch
 
     vectorized_datasets = IterableDatasetDict()
 
     for split in raw_datasets:
-        raw_datasets_features = list(raw_datasets[split].features.keys())
+        # raw_datasets_features = list(raw_datasets[split].features.keys())
 
         vectorized_datasets[split] = raw_datasets[split].map(
             function=prepare_dataset,
-            remove_columns=raw_datasets_features,
+            # remove_columns=raw_datasets_features,
             batch_size=data_args.batch_size,
             batched=True,
         )
@@ -674,25 +747,25 @@ def main():
         logger.info(f"Data preprocessing finished. Files cached at {cache}.")
         return
 
-    metric = evaluate.load("wer")
+    # metric = evaluate.load("wer")
 
-    def compute_metrics(pred_str, label_str):
-        # normalize everything and re-compute the WER
-        norm_pred_str = [normalizer(pred) for pred in pred_str]
-        norm_label_str = [normalizer(label) for label in label_str]
+    # def compute_metrics(pred_str, label_str):
+    #     # normalize everything and re-compute the WER
+    #     norm_pred_str = [normalizer(pred) for pred in pred_str]
+    #     norm_label_str = [normalizer(label) for label in label_str]
 
-        # filtering step to only evaluate the samples that correspond to non-zero normalized references:
-        norm_pred_str = [norm_pred_str[i] for i in range(len(norm_pred_str)) if len(norm_label_str[i]) > 0]
-        norm_label_str = [norm_label_str[i] for i in range(len(norm_label_str)) if len(norm_label_str[i]) > 0]
+    #     # filtering step to only evaluate the samples that correspond to non-zero normalized references:
+    #     norm_pred_str = [norm_pred_str[i] for i in range(len(norm_pred_str)) if len(norm_label_str[i]) > 0]
+    #     norm_label_str = [norm_label_str[i] for i in range(len(norm_label_str)) if len(norm_label_str[i]) > 0]
 
-        wer = 100 * metric.compute(predictions=norm_pred_str, references=norm_label_str)
-        return wer
+    #     wer = 100 * metric.compute(predictions=norm_pred_str, references=norm_label_str)
+    #     return wer
 
     gen_kwargs = {
         "max_length": data_args.generation_max_length,
         "return_timestamps": data_args.return_timestamps,
         "num_beams": data_args.num_beams,
-        "top_k": 0,
+        # "top_k": 0,
     }
 
     if hasattr(model.generation_config, "is_multilingual") and model.generation_config.is_multilingual:
@@ -718,11 +791,11 @@ def main():
         "no_speech_threshold": data_args.no_speech_threshold,
     }
 
-    forced_decoder_ids = processor.get_decoder_prompt_ids(
-        task=data_args.task, 
-        language=data_args.language, 
-        no_timestamps=not data_args.return_timestamps
-    )
+    # forced_decoder_ids = processor.get_decoder_prompt_ids(
+    #     task=data_args.task,
+    #     language=data_args.language,
+    #     no_timestamps=not data_args.return_timestamps
+    # )
 
     def benchmark(batch):
         if model_pipeline is None:
@@ -736,15 +809,15 @@ def main():
                 batch_gen_kwargs = {**gen_kwargs, **long_form_gen_kwargs}
 
             set_seed(data_args.seed)
-            start_time = time.time()
+            # start_time = time.time()
             output_ids = model.generate(inputs, attention_mask=attention_mask, **batch_gen_kwargs)
-            gen_time = time.time() - start_time
+            # gen_time = time.time() - start_time
 
-            batch["time"] = inner_batch_size * [(gen_time) / inner_batch_size]
+            # batch["time"] = inner_batch_size * [(gen_time) / inner_batch_size]
 
-            if not data_args.precise_tok_per_s:
-                n_generated_tokens = output_ids.numel() - inner_batch_size * len(forced_decoder_ids)
-                batch["tokens_per_sec"] = inner_batch_size * [(n_generated_tokens / gen_time) / inner_batch_size]
+            # if not data_args.precise_tok_per_s:
+            #     n_generated_tokens = output_ids.numel() - inner_batch_size * len(forced_decoder_ids)
+            #     batch["tokens_per_sec"] = inner_batch_size * [(n_generated_tokens / gen_time) / inner_batch_size]
 
             batch["transcription"] = processor.batch_decode(
                 output_ids, skip_special_tokens=True, decode_with_timestamps=data_args.return_timestamps
@@ -753,37 +826,37 @@ def main():
         else:
             inputs = batch["input_features"]
             # Time forward: let's make sure that only forward is timed and not pre- and post-processing
-            time_result = []
-            n_generated_tokens = []
+            # time_result = []
+            # n_generated_tokens = []
 
-            def _forward_time(*args, **kwargs):
-                start_time = time.time()
-                result = model_pipeline_forward(*args, **kwargs)
-                end_time = time.time() - start_time
-                time_result.append(end_time)
-                for toks in result['tokens']:
-                    n_generated_tokens.append(len(toks) - len(forced_decoder_ids))
-                return result
+            # def _forward_time(*args, **kwargs):
+            #     start_time = time.time()
+            #     result = model_pipeline_forward(*args, **kwargs)
+            #     end_time = time.time() - start_time
+            #     time_result.append(end_time)
+            #     for toks in result['tokens']:
+            #         n_generated_tokens.append(len(toks) - len(forced_decoder_ids))
+            #     return result
 
-            model_pipeline._forward = _forward_time
+            # model_pipeline._forward = _forward_time
 
             result = model_pipeline(
-                inputs, 
-                batch_size=PIPELINE_BATCH_SIZE, 
+                inputs,
+                batch_size=PIPELINE_BATCH_SIZE,
                 generate_kwargs={
                     **gen_kwargs
                 }
             )[0]["text"]
 
-            if not data_args.precise_tok_per_s:
-                n_generated_tokens = sum(n_generated_tokens)
-                gen_time = time_result[0]
-                batch["tokens_per_sec"] = [n_generated_tokens / gen_time] 
+            # if not data_args.precise_tok_per_s:
+            #     n_generated_tokens = sum(n_generated_tokens)
+            #     gen_time = time_result[0]
+            #     batch["tokens_per_sec"] = [n_generated_tokens / gen_time] 
 
             batch["transcription"] = [result]
-            batch["time"] = [sum(time_result)]
+            # batch["time"] = [sum(time_result)]
 
-        batch["num_words"] = [len(r.split()) for r in batch["reference"]]
+        # batch["num_words"] = [len(r.split()) for r in batch["reference"]]
         return batch
 
     result_datasets = DatasetDict()
@@ -791,154 +864,173 @@ def main():
     for split in vectorized_datasets:
         result_datasets[split] = vectorized_datasets[split].map(
             function=benchmark,
-            remove_columns=["input_features"],
+            remove_columns=["input_features", "attention_mask"] if model_pipeline is None else ["input_features"],
             batch_size=data_args.batch_size,
             batched=True,
         )
-
-    stats_dataset = DatasetDict()
-
-    all_stats = {"rtf": 0, "wer": 0, "tokens_per_sec": 0}
-    rtf_stats = {
-        "times_audio_total": 0,
-        "times_transcription_total": 0,
-    }
-
-    def benchmark_gen(num_batches):
-
-        tokens_per_secs = []
-        for _ in range(num_batches):
-
-            dummy_encoder_outputs = BaseModelOutput(
-                    torch.randn((data_args.batch_size, model.config.max_source_positions, model.config.d_model),
-                                dtype=model.dtype,
-                                device=model.device
-                    )            
-                )
-            n_tokens = data_args.num_tokens
-            
-            if model_pipeline is None:
-                # benchmark time to generate fixed number of tokens
-                start_time = time.time()
-                _ = model.generate(
-                    encoder_outputs=dummy_encoder_outputs,
-                    min_new_tokens=n_tokens,
-                    max_new_tokens=n_tokens,
-                    **gen_kwargs
-                )
-                gen_time = time.time() - start_time
-            
-            else:
-                # benchmark time to generate fixed number of tokens
-                start_time = time.time()
-                _ = model_pipeline.model.generate(
-                    encoder_outputs=dummy_encoder_outputs,
-                    min_new_tokens=n_tokens,
-                    max_new_tokens=n_tokens,
-                    **gen_kwargs
-                )
-                gen_time = time.time() - start_time
-
-            n_generated_tokens = n_tokens * data_args.batch_size
-            tokens_per_secs.append(n_generated_tokens / gen_time)
-
-        return tokens_per_secs
 
     logger.info("***** Running Evaluation *****")
     for key in generation_arguments:
         logger.info(f"  {key}: {generation_arguments[key]}")
 
-    datasets_evaluated_progress_bar = tqdm(result_datasets, desc="Datasets", position=0)
-    for split in datasets_evaluated_progress_bar:
-        
-        transcriptions = []
-        references = []
-        stats = {}
-        times_audio_total = 0
-        times_transcription_total = 0
-        tokens_per_secs = []
+    # transcriptions = []
+    # result_iter = iter(result_datasets["test"])
+    # for result in tqdm(result_iter, desc="Inferring", unit=" samples"):
+    #     transcriptions.append(result["transcription"])
 
-        if data_args.precise_tok_per_s:
-            # evaluate generation speed for few batch
-            tokens_per_secs = benchmark_gen(data_args.num_batches)
+    os.makedirs(os.path.dirname(data_args.output_file), exist_ok=True)
+    result_iter = iter(result_datasets["test"])
+    with open(data_args.output_file, "w", encoding="utf-8") as fo:
+        for result in tqdm(result_iter, desc="Inferring", unit=" samples"):
+            result["prediction"] = result.pop("transcription")
+            # reverse converted audio path
+            if f"tmp_{data_args.audio_column_name}" in result:
+                result[data_args.audio_column_name] = result.pop(f"tmp_{data_args.audio_column_name}")
+            # only save serializable types
+            result = {k: v for k, v in result.items() if isinstance(v, (str, int, float, type(None)))}
+            fo.write(f"{json.dumps(result, default=str, ensure_ascii=False)}\n")
 
-        datasets_evaluated_progress_bar.write(f"Start benchmarking {split}...")
-        result_iter = iter(result_datasets[split])
-        for result in tqdm(result_iter, desc="Samples", position=1):
-            times_audio_total += result["length_in_s"]
-            times_transcription_total += result["time"]
-            # ensure prompt is removed from the transcription (awaiting fix in Transformers)
-            if data_args.prompt_text is not None:
-                result["transcription"] = result["transcription"].replace(data_args.prompt_text, "")
-            transcriptions.append(result["transcription"])
-            references.append(result["reference"])
-            if not data_args.precise_tok_per_s:
-                tokens_per_secs.append(result["tokens_per_sec"])
+    # stats_dataset = DatasetDict()
 
-        norm_transcriptions = [normalizer(pred) for pred in transcriptions]
-        norm_references = [normalizer(label) for label in references]
-        # norm_transcriptions = [normalizer(pred).strip() for pred in transcriptions]
-        # norm_references = [normalizer(label).strip() for label in references]
+    # all_stats = {"rtf": 0, "wer": 0, "tokens_per_sec": 0}
+    # rtf_stats = {
+    #     "times_audio_total": 0,
+    #     "times_transcription_total": 0,
+    # }
 
-        transcriptions = [transcriptions[i] for i in range(len(transcriptions)) if len(norm_references[i]) > 0]
-        references = [references[i] for i in range(len(references)) if len(norm_references[i]) > 0]
+    # def benchmark_gen(num_batches):
 
-        norm_transcriptions = [
-            norm_transcriptions[i] for i in range(len(norm_transcriptions)) if len(norm_references[i]) > 0
-        ]
-        norm_references = [norm_references[i] for i in range(len(norm_references)) if len(norm_references[i]) > 0]
+    #     tokens_per_secs = []
+    #     for _ in range(num_batches):
 
-        stats["wer"] = compute_metrics(norm_transcriptions, norm_references)
+    #         dummy_encoder_outputs = BaseModelOutput(
+    #                 torch.randn((data_args.batch_size, model.config.max_source_positions, model.config.d_model),
+    #                             dtype=model.dtype,
+    #                             device=model.device
+    #                 )            
+    #             )
+    #         n_tokens = data_args.num_tokens
+            
+    #         if model_pipeline is None:
+    #             # benchmark time to generate fixed number of tokens
+    #             start_time = time.time()
+    #             _ = model.generate(
+    #                 encoder_outputs=dummy_encoder_outputs,
+    #                 min_new_tokens=n_tokens,
+    #                 max_new_tokens=n_tokens,
+    #                 **gen_kwargs
+    #             )
+    #             gen_time = time.time() - start_time
+            
+    #         else:
+    #             # benchmark time to generate fixed number of tokens
+    #             start_time = time.time()
+    #             _ = model_pipeline.model.generate(
+    #                 encoder_outputs=dummy_encoder_outputs,
+    #                 min_new_tokens=n_tokens,
+    #                 max_new_tokens=n_tokens,
+    #                 **gen_kwargs
+    #             )
+    #             gen_time = time.time() - start_time
 
-        wer_per_sample = []
-        for pred, ref in zip(norm_transcriptions, norm_references):
-            wer_per_sample.append(compute_metrics([pred], [ref]))
+    #         n_generated_tokens = n_tokens * data_args.batch_size
+    #         tokens_per_secs.append(n_generated_tokens / gen_time)
 
-        stats["rtf"] = times_audio_total / times_transcription_total
-        stats["tokens_per_sec"] = sum(tokens_per_secs) / len(tokens_per_secs) 
-        stats_dataset[split] = stats
+    #     return tokens_per_secs
 
-        wer_desc = " ".join([f"Eval {key}: {value} |" for key, value in stats.items()])
-        datasets_evaluated_progress_bar.write(wer_desc)
+    # logger.info("***** Running Evaluation *****")
+    # for key in generation_arguments:
+    #     logger.info(f"  {key}: {generation_arguments[key]}")
 
-        write_wandb_metric(wandb_logger, stats, prefix=split)
+    # datasets_evaluated_progress_bar = tqdm(result_datasets, desc="Datasets", position=0)
+    # for split in datasets_evaluated_progress_bar:
 
-        if data_args.log_predictions:
-            write_wandb_pred(
-                wandb_logger,
-                transcriptions,
-                references,
-                norm_transcriptions,
-                norm_references,
-                wer_per_sample,
-                prefix=split,
-            )
+    #     transcriptions = []
+    #     references = []
+    #     stats = {}
+    #     times_audio_total = 0
+    #     times_transcription_total = 0
+    #     tokens_per_secs = []
 
-        rtf_stats["times_audio_total"] += times_audio_total
-        rtf_stats["times_transcription_total"] += times_transcription_total
-        all_stats["wer"] += stats["wer"]
-        all_stats["tokens_per_sec"] += stats["tokens_per_sec"]
+    #     if data_args.precise_tok_per_s:
+    #         # evaluate generation speed for few batch
+    #         tokens_per_secs = benchmark_gen(data_args.num_batches)
 
-    all_stats["wer"] = all_stats["wer"] / len(result_datasets)
-    # technically this is the reciprocal of the RTF, but it makes the scale easier to read on wandb
-    all_stats["rtf"] = rtf_stats["times_audio_total"] / rtf_stats["times_transcription_total"]
-    all_stats["tokens_per_sec"] = all_stats["tokens_per_sec"] / len(result_datasets)
+    #     datasets_evaluated_progress_bar.write(f"Start benchmarking {split}...")
+    #     result_iter = iter(result_datasets[split])
+    #     for result in tqdm(result_iter, desc="Samples", position=1):
+    #         times_audio_total += result["length_in_s"]
+    #         times_transcription_total += result["time"]
+    #         # ensure prompt is removed from the transcription (awaiting fix in Transformers)
+    #         if data_args.prompt_text is not None:
+    #             result["transcription"] = result["transcription"].replace(data_args.prompt_text, "")
+    #         transcriptions.append(result["transcription"])
+    #         references.append(result["reference"])
+    #         if not data_args.precise_tok_per_s:
+    #             tokens_per_secs.append(result["tokens_per_sec"])
 
-    stats_dataset["all"] = all_stats
+    #     norm_transcriptions = [normalizer(pred) for pred in transcriptions]
+    #     norm_references = [normalizer(label) for label in references]
 
-    write_wandb_metric(wandb_logger, all_stats, prefix="all")
+    #     transcriptions = [transcriptions[i] for i in range(len(transcriptions)) if len(norm_references[i]) > 0]
+    #     references = [references[i] for i in range(len(references)) if len(norm_references[i]) > 0]
 
-    benchmark_artifact = wandb.Artifact("Benchmark", type="datasets")
-    with tempfile.TemporaryDirectory() as temp_dir:
-        for split in stats_dataset:
-            file_name = os.path.join(temp_dir, f"{'_'.join(split.split('/'))}.json")
+    #     norm_transcriptions = [
+    #         norm_transcriptions[i] for i in range(len(norm_transcriptions)) if len(norm_references[i]) > 0
+    #     ]
+    #     norm_references = [norm_references[i] for i in range(len(norm_references)) if len(norm_references[i]) > 0]
 
-            with open(file_name, "w") as json_file:
-                json.dump(stats_dataset[split], json_file)
+    #     stats["wer"] = compute_metrics(norm_transcriptions, norm_references)
 
-            benchmark_artifact.add_file(file_name, split)
+    #     wer_per_sample = []
+    #     for pred, ref in zip(norm_transcriptions, norm_references):
+    #         wer_per_sample.append(compute_metrics([pred], [ref]))
 
-        wandb_logger.log_artifact(benchmark_artifact)
+    #     stats["rtf"] = times_audio_total / times_transcription_total
+    #     stats["tokens_per_sec"] = sum(tokens_per_secs) / len(tokens_per_secs) 
+    #     stats_dataset[split] = stats
+
+    #     wer_desc = " ".join([f"Eval {key}: {value} |" for key, value in stats.items()])
+    #     datasets_evaluated_progress_bar.write(wer_desc)
+
+        # write_wandb_metric(wandb_logger, stats, prefix=split)
+
+        # if data_args.log_predictions:
+        #     write_wandb_pred(
+        #         wandb_logger,
+        #         transcriptions,
+        #         references,
+        #         norm_transcriptions,
+        #         norm_references,
+        #         wer_per_sample,
+        #         prefix=split,
+        #     )
+
+    #     rtf_stats["times_audio_total"] += times_audio_total
+    #     rtf_stats["times_transcription_total"] += times_transcription_total
+    #     all_stats["wer"] += stats["wer"]
+    #     all_stats["tokens_per_sec"] += stats["tokens_per_sec"]
+
+    # all_stats["wer"] = all_stats["wer"] / len(result_datasets)
+    # # technically this is the reciprocal of the RTF, but it makes the scale easier to read on wandb
+    # all_stats["rtf"] = rtf_stats["times_audio_total"] / rtf_stats["times_transcription_total"]
+    # all_stats["tokens_per_sec"] = all_stats["tokens_per_sec"] / len(result_datasets)
+
+    # stats_dataset["all"] = all_stats
+
+    # write_wandb_metric(wandb_logger, all_stats, prefix="all")
+
+    # benchmark_artifact = wandb.Artifact("Benchmark", type="datasets")
+    # with tempfile.TemporaryDirectory() as temp_dir:
+    #     for split in stats_dataset:
+    #         file_name = os.path.join(temp_dir, f"{'_'.join(split.split('/'))}.json")
+
+    #         with open(file_name, "w") as json_file:
+    #             json.dump(stats_dataset[split], json_file)
+
+    #         benchmark_artifact.add_file(file_name, split)
+
+    #     wandb_logger.log_artifact(benchmark_artifact)
 
 
 if __name__ == "__main__":
