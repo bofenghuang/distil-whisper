@@ -97,14 +97,16 @@ def main(
             if "decoder" in k:
                 average[k] /= n
 
-    new_dir = f"{input_dir}_avg{n}"
+    # new_dir = f"{input_dir}_avg{n}"
 
     # copy
-    copy_dir_with_exclusions(input_dir, new_dir, exclude_patterns=[r"checkpoint-\d+-epoch-\d+", r"model\.safetensors"])
+    # copy_dir_with_exclusions(input_dir, new_dir, exclude_patterns=[r"checkpoint-\d+-epoch-\d+", r"model\.safetensors"])
 
     # save
     # save_file(average, f"{new_dir}/model.safetensors")
-    save_file(average, f"{new_dir}/model.safetensors", metadata=metadata)
+    # save_file(average, f"{new_dir}/model.safetensors", metadata=metadata)
+
+    save_file(average, f"{input_dir}/model_avg{n}.safetensors", metadata=metadata)
 
 
 if __name__ == "__main__":

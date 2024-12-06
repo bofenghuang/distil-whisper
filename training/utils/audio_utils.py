@@ -211,6 +211,8 @@ def get_waveform_bytes_from_stored_zip(zip_path: str, offset: int, length: int) 
 
 
 def is_sf_audio_data(data: bytes) -> bool:
+    if len(data) < 3:
+        return False
     is_wav = data[0] == 82 and data[1] == 73 and data[2] == 70
     is_flac = data[0] == 102 and data[1] == 76 and data[2] == 97
     is_ogg = data[0] == 79 and data[1] == 103 and data[2] == 103
